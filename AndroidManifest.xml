@@ -21,5 +21,9 @@
             android:name=".MainActivity$ReaderActivity"
             android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|smallestScreenSize"
             android:exported="false" />
+        <activity
+            android:name=".MainActivity$TextReaderActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|smallestScreenSize"
+            android:exported="false" />
     </application>
 </manifest>

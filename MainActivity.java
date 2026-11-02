@@ -57,6 +57,15 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.io.ByteArrayInputStream;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CodingErrorAction;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
+
+import android.util.Xml;
+import org.xmlpull.v1.XmlPullParser;
 
 public class MainActivity extends Activity {
 
@@ -149,7 +158,13 @@ public class MainActivity extends Activity {
 
     private void openReader(String uri, int page) {
         try {
-            Intent i = new Intent(MainActivity.this, ReaderActivity.class);
+            String nm = displayName(Uri.parse(uri)).toLowerCase();
+            if (nm.endsWith(".doc") || nm.endsWith(".rtf")) {
+                openExternal(uri);   // formats que le lecteur intégré ne sait pas lire
+                return;
+            }
+            boolean text = nm.endsWith(".docx") || nm.endsWith(".txt") || nm.endsWith(".md");
+            Intent i = new Intent(MainActivity.this, text ? TextReaderActivity.class : ReaderActivity.class);
             i.setData(Uri.parse(uri));
             i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             if (page > 0) {
@@ -160,6 +175,37 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
             internal = false;
             toast("Impossible d'ouvrir le lecteur.");
+        }
+    }
+
+    static boolean isDocName(String name) {
+        String n = name.toLowerCase();
+        return n.endsWith(".pdf") || n.endsWith(".docx") || n.endsWith(".doc") || n.endsWith(".txt")
+                || n.endsWith(".md") || n.endsWith(".rtf");
+    }
+
+    private void openExternal(String uri) {
+        try {
+            Uri u = Uri.parse(uri);
+            String nm = displayName(u).toLowerCase();
+            String mime = "application/pdf";
+            if (nm.endsWith(".docx")) {
+                mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+            } else if (nm.endsWith(".doc")) {
+                mime = "application/msword";
+            } else if (nm.endsWith(".rtf")) {
+                mime = "application/rtf";
+            } else if (nm.endsWith(".txt") || nm.endsWith(".md")) {
+                mime = "text/plain";
+            }
+            Intent i = new Intent(Intent.ACTION_VIEW);
+            i.setDataAndType(u, mime);
+            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(i);
+        } catch (ActivityNotFoundException e) {
+            toast("Aucune application installée ne peut ouvrir ce fichier.");
+        } catch (Exception e) {
+            toast("Fichier introuvable ou accès perdu. Réimportez le dossier.");
         }
     }
 
@@ -204,8 +250,7 @@ public class MainActivity extends Activity {
                     if (depth < 6) {
                         listPdfs(tree, id, out, depth + 1);
                     }
-                } else if ("application/pdf".equals(mime)
-                        || (name != null && name.toLowerCase().endsWith(".pdf"))) {
+                } else if ("application/pdf".equals(mime) || (name != null && isDocName(name))) {
                     Uri doc = DocumentsContract.buildDocumentUriUsingTree(tree, id);
                     JSONObject o = new JSONObject();
                     o.put("name", name);
@@ -313,7 +358,12 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
                 i.addCategory(Intent.CATEGORY_OPENABLE);
-                i.setType("application/pdf");
+                i.setType("*/*");
+                i.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{
+                        "application/pdf",
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        "application/msword", "application/rtf", "text/rtf",
+                        "text/plain", "text/markdown"});
                 i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
                 i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
                 internal = true;
@@ -359,18 +409,7 @@ public class MainActivity extends Activity {
         /** Ouvre le PDF avec une autre application installée sur le téléphone. */
         @JavascriptInterface
         public void openPdfExternal(final String uri) {
-            runOnUiThread(() -> {
-                try {
-                    Intent i = new Intent(Intent.ACTION_VIEW);
-                    i.setDataAndType(Uri.parse(uri), "application/pdf");
-                    i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                    startActivity(i);
-                } catch (ActivityNotFoundException e) {
-                    toast("Aucune application de lecture PDF n'est installée.");
-                } catch (Exception e) {
-                    toast("Fichier introuvable ou accès perdu. Réimportez le dossier des PDF.");
-                }
-            });
+            runOnUiThread(() -> openExternal(uri));
         }
 
         @JavascriptInterface
@@ -917,6 +956,453 @@ public class MainActivity extends Activity {
                     requestRender(position, w, h);
                 }
                 return iv;
+            }
+        }
+    }
+
+    /**
+     * Lecteur de texte intégré : fichiers .txt / .md et documents Word (.docx).
+     * Le texte est affiché paragraphe par paragraphe (liste), thème sombre, taille réglable.
+     * Les « pages » sont approximatives (environ 1800 caractères) pour alimenter la progression et les notes.
+     */
+    public static class TextReaderActivity extends Activity {
+
+        private static final int[] SIZES = {14, 16, 18, 20, 24, 28};
+        private static final int CHARS_PER_PAGE = 1800;
+
+        private final ArrayList<String> paras = new ArrayList<>();
+        private final ArrayList<Boolean> heads = new ArrayList<>();
+        private long[] cum = new long[0];
+        private int pageCount = 1;
+        private int sizeIndex = 2;
+        private boolean dark = true;
+        private boolean ready = false;
+        private boolean resultSet = false;
+
+        private ListView list;
+        private TextView indicator;
+        private BaseAdapter adapter;
+        private SharedPreferences prefs;
+        private String prefKey;
+        private String uriString;
+
+        private int dp(int v) {
+            return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
+        }
+
+        @Override
+        protected void onCreate(Bundle savedInstanceState) {
+            super.onCreate(savedInstanceState);
+            getWindow().setStatusBarColor(0xFF121212);
+            getWindow().setNavigationBarColor(0xFF121212);
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            if (MainActivity.pinOn && MainActivity.secureOn) {
+                getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+            }
+            MainActivity.readerLeftAt = 0L;
+
+            final Uri uri = getIntent().getData();
+            if (uri == null) {
+                finish();
+                return;
+            }
+            uriString = uri.toString();
+            prefs = getSharedPreferences("lecteur", MODE_PRIVATE);
+            dark = prefs.getBoolean("dark", true);
+            sizeIndex = Math.max(0, Math.min(SIZES.length - 1, prefs.getInt("tsize", 2)));
+            prefKey = "page_" + uriString.hashCode();
+            buildUi();
+
+            new Thread(() -> {
+                try {
+                    byte[] bytes = readAll(uri);
+                    boolean isZip = bytes.length > 4 && bytes[0] == 'P' && bytes[1] == 'K';
+                    if (isZip) {
+                        if (!parseDocx(bytes)) {
+                            failAndFinish("Ce document Word ne peut pas être lu (format non reconnu).");
+                            return;
+                        }
+                    } else if (bytes.length > 4 && (bytes[0] & 0xFF) == 0xD0 && (bytes[1] & 0xFF) == 0xCF) {
+                        failAndFinish("Ancien format Word (.doc) : utilisez « Ouvrir avec une autre application ».");
+                        return;
+                    } else {
+                        parseText(decode(bytes));
+                    }
+                    computeIndex();
+                    runOnUiThread(this::showText);
+                } catch (Throwable t) {
+                    failAndFinish("Impossible d'ouvrir ce fichier.");
+                }
+            }).start();
+        }
+
+        private byte[] readAll(Uri uri) throws Exception {
+            try (InputStream in = getContentResolver().openInputStream(uri)) {
+                ByteArrayOutputStream buf = new ByteArrayOutputStream();
+                byte[] chunk = new byte[16384];
+                int n;
+                while (in != null && (n = in.read(chunk)) > 0) {
+                    buf.write(chunk, 0, n);
+                }
+                return buf.toByteArray();
+            }
+        }
+
+        private static String decode(byte[] b) {
+            if (b.length >= 2 && (b[0] & 0xFF) == 0xFF && (b[1] & 0xFF) == 0xFE) {
+                return new String(b, 2, b.length - 2, StandardCharsets.UTF_16LE);
+            }
+            if (b.length >= 2 && (b[0] & 0xFF) == 0xFE && (b[1] & 0xFF) == 0xFF) {
+                return new String(b, 2, b.length - 2, StandardCharsets.UTF_16BE);
+            }
+            int off = (b.length >= 3 && (b[0] & 0xFF) == 0xEF && (b[1] & 0xFF) == 0xBB && (b[2] & 0xFF) == 0xBF) ? 3 : 0;
+            try {
+                CharsetDecoder d = StandardCharsets.UTF_8.newDecoder()
+                        .onMalformedInput(CodingErrorAction.REPORT)
+                        .onUnmappableCharacter(CodingErrorAction.REPORT);
+                return d.decode(ByteBuffer.wrap(b, off, b.length - off)).toString();
+            } catch (Exception e) {
+                try {
+                    // anciens fichiers : windows-1256 couvre l'arabe et les lettres accentuées françaises
+                    return new String(b, off, b.length - off, "windows-1256");
+                } catch (Exception e2) {
+                    return new String(b, off, b.length - off, StandardCharsets.ISO_8859_1);
+                }
+            }
+        }
+
+        private void addPara(String s, boolean head) {
+            String t = s.replace("\r", "");
+            while (t.endsWith(" ") || t.endsWith("\t")) {
+                t = t.substring(0, t.length() - 1);
+            }
+            if (t.isEmpty() && (paras.isEmpty() || paras.get(paras.size() - 1).isEmpty())) {
+                return;   // pas de paragraphes vides consécutifs
+            }
+            paras.add(t);
+            heads.add(head);
+        }
+
+        private void parseText(String text) {
+            String[] lines = text.replace("\r\n", "\n").replace('\r', '\n').split("\n", -1);
+            for (String line : lines) {
+                addPara(line, false);
+            }
+        }
+
+        private boolean parseDocx(byte[] bytes) throws Exception {
+            ZipInputStream zin = new ZipInputStream(new ByteArrayInputStream(bytes));
+            ZipEntry e;
+            while ((e = zin.getNextEntry()) != null) {
+                if ("word/document.xml".equals(e.getName())) {
+                    parseDocXml(zin);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private void parseDocXml(InputStream in) throws Exception {
+            XmlPullParser p = Xml.newPullParser();
+            p.setInput(in, null);
+            StringBuilder cur = new StringBuilder();
+            boolean head = false;
+            boolean inT = false;
+            int ev = p.getEventType();
+            while (ev != XmlPullParser.END_DOCUMENT) {
+                if (ev == XmlPullParser.START_TAG) {
+                    String n = p.getName();
+                    if ("w:p".equals(n)) {
+                        cur.setLength(0);
+                        head = false;
+                    } else if ("w:t".equals(n)) {
+                        inT = true;
+                    } else if ("w:tab".equals(n)) {
+                        cur.append('\t');
+                    } else if ("w:br".equals(n) || "w:cr".equals(n)) {
+                        cur.append('\n');
+                    } else if ("w:pStyle".equals(n)) {
+                        String v = p.getAttributeValue(null, "w:val");
+                        if (v != null) {
+                            String l = v.toLowerCase();
+                            if (l.startsWith("heading") || l.startsWith("titre") || l.equals("title")) {
+                                head = true;
+                            }
+                        }
+                    }
+                } else if (ev == XmlPullParser.TEXT) {
+                    if (inT) {
+                        cur.append(p.getText());
+                    }
+                } else if (ev == XmlPullParser.END_TAG) {
+                    String n = p.getName();
+                    if ("w:t".equals(n)) {
+                        inT = false;
+                    } else if ("w:p".equals(n)) {
+                        addPara(cur.toString(), head);
+                        cur.setLength(0);
+                    }
+                }
+                ev = p.next();
+            }
+        }
+
+        private void computeIndex() {
+            cum = new long[paras.size() + 1];
+            for (int i = 0; i < paras.size(); i++) {
+                cum[i + 1] = cum[i] + paras.get(i).length() + 1;
+            }
+            pageCount = (int) Math.max(1, (cum[paras.size()] + CHARS_PER_PAGE - 1) / CHARS_PER_PAGE);
+        }
+
+        private int pageOfPara(int i) {
+            if (i < 0 || i >= cum.length) {
+                return 1;
+            }
+            return (int) Math.min(pageCount, cum[i] / CHARS_PER_PAGE + 1);
+        }
+
+        private int paraOfPage(int page) {
+            long target = (long) (Math.max(1, page) - 1) * CHARS_PER_PAGE;
+            int lo = 0;
+            int hi = Math.max(0, paras.size() - 1);
+            while (lo < hi) {
+                int mid = (lo + hi + 1) / 2;
+                if (cum[mid] <= target) {
+                    lo = mid;
+                } else {
+                    hi = mid - 1;
+                }
+            }
+            return lo;
+        }
+
+        private void failAndFinish(final String msg) {
+            runOnUiThread(() -> {
+                Toast.makeText(TextReaderActivity.this, msg, Toast.LENGTH_LONG).show();
+                finish();
+            });
+        }
+
+        private TextView barButton(String text, View.OnClickListener l) {
+            TextView b = new TextView(this);
+            b.setText(text);
+            b.setTextSize(24);
+            b.setTextColor(0xFFE8E4DC);
+            b.setGravity(Gravity.CENTER);
+            b.setMinWidth(dp(52));
+            b.setMinHeight(dp(48));
+            b.setOnClickListener(l);
+            return b;
+        }
+
+        private void buildUi() {
+            LinearLayout root = new LinearLayout(this);
+            root.setOrientation(LinearLayout.VERTICAL);
+
+            LinearLayout bar = new LinearLayout(this);
+            bar.setOrientation(LinearLayout.HORIZONTAL);
+            bar.setGravity(Gravity.CENTER_VERTICAL);
+            bar.setBackgroundColor(0xFF1E1E1E);
+            bar.setPadding(dp(8), dp(2), dp(8), dp(2));
+
+            indicator = new TextView(this);
+            indicator.setText("Ouverture…");
+            indicator.setTextColor(0xFFF4A259);
+            indicator.setTextSize(18);
+            indicator.setPadding(dp(8), dp(10), dp(8), dp(10));
+            indicator.setOnClickListener(v -> askPage());
+            bar.addView(indicator, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+            bar.addView(barButton("📝", v -> noteAndExit()));
+            bar.addView(barButton("A−", v -> resize(-1)));
+            bar.addView(barButton("A+", v -> resize(1)));
+            bar.addView(barButton("◐", v -> toggleDark()));
+            root.addView(bar, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+            list = new ListView(this);
+            list.setDivider(null);
+            list.setDividerHeight(0);
+            root.addView(list, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+            setContentView(root);
+            applyTheme();
+        }
+
+        private void applyTheme() {
+            list.setBackgroundColor(dark ? 0xFF121212 : 0xFFF2EFE6);
+        }
+
+        private void showText() {
+            if (paras.isEmpty()) {
+                Toast.makeText(this, "Ce document ne contient aucun texte.", Toast.LENGTH_LONG).show();
+                finish();
+                return;
+            }
+            adapter = new BaseAdapter() {
+                @Override
+                public int getCount() {
+                    return paras.size();
+                }
+
+                @Override
+                public Object getItem(int position) {
+                    return null;
+                }
+
+                @Override
+                public long getItemId(int position) {
+                    return position;
+                }
+
+                @Override
+                public View getView(int position, View convertView, ViewGroup parent) {
+                    TextView tv = convertView instanceof TextView ? (TextView) convertView
+                            : new TextView(TextReaderActivity.this);
+                    String s = paras.get(position);
+                    boolean head = heads.get(position);
+                    tv.setText(s.isEmpty() ? " " : s);
+                    tv.setTextColor(dark ? 0xFFE0DCD2 : 0xFF111111);
+                    tv.setTextSize(head ? SIZES[sizeIndex] * 1.2f : SIZES[sizeIndex]);
+                    tv.setTypeface(null, head ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+                    tv.setLineSpacing(0, 1.25f);
+                    tv.setTextDirection(View.TEXT_DIRECTION_FIRST_STRONG);
+                    tv.setPadding(dp(16), dp(s.isEmpty() ? 2 : 6), dp(16), dp(s.isEmpty() ? 2 : 6));
+                    tv.setLayoutParams(new AbsListView.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                    return tv;
+                }
+            };
+            list.setAdapter(adapter);
+            list.setOnScrollListener(new AbsListView.OnScrollListener() {
+                @Override
+                public void onScrollStateChanged(AbsListView view, int scrollState) {
+                }
+
+                @Override
+                public void onScroll(AbsListView view, int first, int visible, int total) {
+                    updateIndicator(first);
+                }
+            });
+            int pos = prefs.getInt(prefKey, 0);
+            int wanted = getIntent().getIntExtra("page", 0);
+            if (wanted > 0) {
+                pos = paraOfPage(wanted);
+            }
+            if (pos < 0 || pos >= paras.size()) {
+                pos = 0;
+            }
+            ready = true;
+            list.setSelection(pos);
+            updateIndicator(pos);
+        }
+
+        private void updateIndicator(int first) {
+            indicator.setText(pageOfPara(first) + " / " + pageCount);
+        }
+
+        private void resize(int delta) {
+            if (!ready) {
+                return;
+            }
+            int ni = Math.max(0, Math.min(SIZES.length - 1, sizeIndex + delta));
+            if (ni == sizeIndex) {
+                return;
+            }
+            sizeIndex = ni;
+            prefs.edit().putInt("tsize", sizeIndex).apply();
+            int first = list.getFirstVisiblePosition();
+            list.setAdapter(adapter);
+            list.setSelection(first);
+        }
+
+        private void toggleDark() {
+            dark = !dark;
+            prefs.edit().putBoolean("dark", dark).apply();
+            applyTheme();
+            if (adapter != null) {
+                adapter.notifyDataSetChanged();
+            }
+        }
+
+        private void askPage() {
+            if (!ready) {
+                return;
+            }
+            final EditText et = new EditText(this);
+            et.setInputType(InputType.TYPE_CLASS_NUMBER);
+            et.setHint("1 – " + pageCount);
+            new AlertDialog.Builder(this)
+                    .setTitle("Aller à la page (approximative)")
+                    .setView(et)
+                    .setPositiveButton("OK", (d, w) -> {
+                        try {
+                            int n = Integer.parseInt(et.getText().toString().trim());
+                            n = Math.max(1, Math.min(pageCount, n));
+                            list.setSelection(paraOfPage(n));
+                        } catch (Exception ignored) {
+                        }
+                    })
+                    .setNegativeButton("Annuler", null)
+                    .show();
+        }
+
+        private void noteAndExit() {
+            if (!ready) {
+                return;
+            }
+            int first = list.getFirstVisiblePosition();
+            prefs.edit().putInt(prefKey, first).apply();
+            Intent r = new Intent();
+            r.putExtra("uri", uriString);
+            r.putExtra("page", pageOfPara(first));
+            r.putExtra("total", pageCount);
+            r.putExtra("note", true);
+            setResult(RESULT_OK, r);
+            resultSet = true;
+            finish();
+        }
+
+        @Override
+        public void finish() {
+            if (!resultSet && ready && uriString != null) {
+                Intent r = new Intent();
+                r.putExtra("uri", uriString);
+                r.putExtra("page", pageOfPara(list.getFirstVisiblePosition()));
+                r.putExtra("total", pageCount);
+                r.putExtra("note", false);
+                setResult(RESULT_OK, r);
+                resultSet = true;
+            }
+            super.finish();
+        }
+
+        @Override
+        protected void onPause() {
+            super.onPause();
+            if (ready && prefs != null) {
+                prefs.edit().putInt(prefKey, list.getFirstVisiblePosition()).apply();
+            }
+        }
+
+        @Override
+        protected void onStop() {
+            super.onStop();
+            if (!isFinishing()) {
+                MainActivity.readerLeftAt = System.currentTimeMillis();
+            }
+        }
+
+        @Override
+        protected void onStart() {
+            super.onStart();
+            long left = MainActivity.readerLeftAt;
+            MainActivity.readerLeftAt = 0L;
+            if (MainActivity.pinOn && left > 0
+                    && System.currentTimeMillis() - left >= MainActivity.lockDelayMs) {
+                MainActivity.forceLock = true;
+                finish();
             }
         }
     }

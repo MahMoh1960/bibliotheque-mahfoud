@@ -103,8 +103,8 @@ label.cbx input{width:22px;height:22px;flex:none;margin:0}
 <div class="veil" id="formVeil"><div class="sheet" id="formSheet"></div></div>
 <div class="veil" id="menuVeil"><div class="sheet menu" id="menuSheet">
   <h2>Menu</h2>
-  <button id="mFolder" hidden>📁 Importer un dossier de PDF</button>
-  <button id="mPdf">📕 Importer des PDF (Livres)</button>
+  <button id="mFolder" hidden>📁 Importer un dossier (PDF, Word, texte)</button>
+  <button id="mPdf">📕 Importer des fichiers (PDF, Word, texte)</button>
   <button id="mImport">⬆️ Importer un fichier CSV</button>
   <button id="mExport">⬇️ Exporter cette rubrique (CSV)</button>
   <button id="mTemplate">📄 Télécharger un modèle CSV</button>
@@ -117,7 +117,7 @@ label.cbx input{width:22px;height:22px;flex:none;margin:0}
   <div class="note">Faites une sauvegarde complète de temps en temps : elle contient vos livres, magazines, journaux et notes. Les données sont conservées uniquement sur ce téléphone.</div>
 </div></div>
 <input type="file" id="file" accept=".csv,.txt,.json,text/csv,text/plain,application/json" hidden>
-<input type="file" id="pdfs" accept=".pdf,application/pdf" multiple hidden>
+<input type="file" id="pdfs" accept=".pdf,.docx,.doc,.txt,.md,.rtf,application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple hidden>
 <div class="toast" id="toast"></div>
 <div id="lock" hidden><div class="lbox"><div class="lic">🔒</div><h2>Bibliothèque de Mahfoud</h2><div class="note" id="lockMsg">Entrez votre code PIN</div><input class="inp" id="lockIn" type="password" inputmode="numeric" maxlength="8" autocomplete="off" aria-label="Code PIN"><button class="btn pri" id="lockOk" style="width:100%;margin-top:14px">Déverrouiller</button></div></div>
 
@@ -792,6 +792,7 @@ function templateCSV(){
 }
 
 /* ---------- Import de PDF (noms de fichiers) ---------- */
+const DOC_EXT=/\.(pdf|docx?|txt|md|rtf)$/i;
 function cleanTitle(base){
   let t=base.trim();
   const m=t.match(/^\d{1,3}\s*[.\-–]\s*(.+)$/);   // « 38.Michael Feiner » → numéro d'ordre retiré
@@ -810,7 +811,7 @@ function importPdfs(files){
     const name=f.name;
     if(seenFiles.has(name)){skipped++;continue;}
     seenFiles.add(name);
-    const titre=cleanTitle(name.replace(/\.pdf$/i,''));
+    const titre=cleanTitle(name.replace(DOC_EXT,''));
     if(!titre){skipped++;continue;}
     const verif=looksDoubtful(titre);
     if(verif)doubtful++;
@@ -834,7 +835,7 @@ function linkOrAddPdfs(list){
       if(!ex.uri){ex.uri=f.uri;uris.add(f.uri);linked++;}else skipped++;
       continue;
     }
-    const titre=cleanTitle(f.name.replace(/\.pdf$/i,''));
+    const titre=cleanTitle(f.name.replace(DOC_EXT,''));
     if(!titre){skipped++;continue;}
     const verif=looksDoubtful(titre);
     if(verif)doubtful++;
