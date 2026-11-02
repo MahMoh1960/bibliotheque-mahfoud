@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#121212">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<title>Bibliothèque de Mahfoud</title>
+<style>
+:root{
+  --bg:#121212; --surface:#1e1e1e; --surface2:#2a2a2a; --line:#333;
+  --text:#e8e4dc; --muted:#a39e93; --accent:#f4a259; --accent-ink:#1a1206; --danger:#e57373;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Naskh Arabic",sans-serif;font-size:18px}
+body{min-height:100vh;padding-bottom:110px}
+header{position:sticky;top:0;z-index:5;background:var(--bg);padding:12px 14px 8px;border-bottom:1px solid var(--line)}
+.top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+h1{font-size:21px;margin:0;color:var(--accent);font-weight:700}
+.iconbtn{background:var(--surface2);color:var(--text);border:1px solid var(--line);border-radius:12px;min-width:48px;height:48px;font-size:22px}
+.tabs{display:flex;gap:8px;margin:10px 0}
+.tab{flex:1;height:46px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:17px}
+.tab.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:700}
+.search{width:100%;height:50px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--text);padding:0 14px;font-size:18px}
+.count{color:var(--muted);font-size:15px;margin:8px 2px 0}
+main{padding:10px 14px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px}
+.card:active{background:var(--surface2)}
+.t{font-size:19px;font-weight:600;line-height:1.35}
+.s{color:var(--muted);font-size:16px;margin-top:4px;line-height:1.4}
+.empty{color:var(--muted);text-align:center;padding:40px 10px;line-height:1.6}
+.fab{position:fixed;right:18px;bottom:calc(18px + env(safe-area-inset-bottom));width:64px;height:64px;border-radius:50%;border:none;background:var(--accent);color:var(--accent-ink);font-size:34px;box-shadow:0 4px 14px rgba(0,0,0,.5)}
+.veil{position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;align-items:flex-end;z-index:20}
+.veil.on{display:flex}
+.sheet{background:var(--surface);width:100%;max-height:92vh;overflow:auto;border-radius:20px 20px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom));border-top:1px solid var(--line)}
+.sheet h2{margin:0 0 12px;font-size:20px;color:var(--accent)}
+label{display:block;color:var(--muted);font-size:15px;margin:12px 0 4px}
+.inp{width:100%;height:50px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--text);padding:0 12px;font-size:18px}
+.row{display:flex;gap:10px;margin-top:18px}
+.btn{flex:1;height:52px;border-radius:12px;border:1px solid var(--line);background:var(--surface2);color:var(--text);font-size:18px}
+.btn.pri{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:700}
+.btn.del{color:var(--danger);border-color:var(--danger);background:transparent}
+.menu button{display:block;width:100%;text-align:start;height:54px;margin-bottom:8px;border-radius:12px;border:1px solid var(--line);background:var(--surface2);color:var(--text);font-size:18px;padding:0 14px}
+.note{color:var(--muted);font-size:14px;line-height:1.5;margin-top:10px}
+.toast{position:fixed;left:50%;bottom:100px;transform:translateX(-50%);background:var(--surface2);color:var(--text);border:1px solid var(--line);padding:12px 16px;border-radius:12px;z-index:30;display:none;max-width:90%;text-align:center}
+</style>
+</head>
+<body>
+<header>
+  <div class="top">
+    <h1>📚 Bibliothèque de Mahfoud</h1>
+    <button class="iconbtn" id="menuBtn" aria-label="Menu">⋮</button>
+  </div>
+  <div class="tabs" id="tabs"></div>
+  <input class="search" id="q" type="search" placeholder="Rechercher…" dir="auto" autocomplete="off">
+  <div class="count" id="count"></div>
+</header>
+<main id="list"></main>
+<button class="fab" id="add" aria-label="Ajouter">+</button>
+
+<div class="veil" id="formVeil"><div class="sheet" id="formSheet"></div></div>
+<div class="veil" id="menuVeil"><div class="sheet menu" id="menuSheet">
+  <h2>Menu</h2>
+  <button id="mImport">⬆️ Importer un fichier CSV</button>
+  <button id="mExport">⬇️ Exporter cette rubrique (CSV)</button>
+  <button id="mTemplate">📄 Télécharger un modèle CSV</button>
+  <button id="mClose">Fermer</button>
+  <div class="note">Pensez à exporter régulièrement : le fichier CSV est votre sauvegarde. Les données sont conservées uniquement sur ce téléphone.</div>
+</div></div>
+<input type="file" id="file" accept=".csv,.txt,text/csv,text/plain" hidden>
+<div class="toast" id="toast"></div>
+
+<script>
+const KEY='bibliotheque_mahfoud_v1';
+const SECTIONS={
+  livres:{label:'Livres',single:'un livre',fields:[
+    {k:'titre',l:'Titre',req:true},{k:'auteur',l:'Auteur'},{k:'edition',l:'Édition'}]},
+  magazines:{label:'Magazines',single:'un magazine',fields:[
+    {k:'titre',l:'Titre',req:true},{k:'numero',l:'Numéro'},{k:'date',l:'Date'}]},
+  journaux:{label:'Journaux',single:'un journal',fields:[
+    {k:'titre',l:'Titre',req:true},{k:'date',l:'Date'}]}
+};
+const ALIASES={
+  titre:['titre','title','intitule','عنوان','العنوان'],
+  auteur:['auteur','author','المؤلف','مؤلف'],
+  edition:['edition','editions','editeur','الطبعة','طبعة'],
+  numero:['numero','no','n','number','العدد'],
+  date:['date','التاريخ']
+};
+const $=s=>document.querySelector(s);
+let cur='livres', editId=null;
+let data=load();
+
+function load(){
+  const base={livres:[],magazines:[],journaux:[]};
+  try{const d=JSON.parse(localStorage.getItem(KEY));if(d&&typeof d==='object')return Object.assign(base,d);}catch(e){}
+  return base;
+}
+function save(){
+  try{localStorage.setItem(KEY,JSON.stringify(data));return true;}
+  catch(e){toast('Enregistrement impossible : espace insuffisant.');return false;}
+}
+function norm(s){
+  return (s==null?'':String(s)).normalize('NFD')
+    .replace(/[̀-ًͯ-ٰٟـ]/g,'')
+    .replace(/[آأإ]/g,'ا')
+    .toLowerCase().trim();
+}
+function toast(msg){
+  const t=$('#toast');t.textContent=msg;t.style.display='block';
+  clearTimeout(toast.h);toast.h=setTimeout(()=>t.style.display='none',3200);
+}
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
+
+function renderTabs(){
+  $('#tabs').innerHTML=Object.keys(SECTIONS).map(k=>
+    `<button class="tab ${k===cur?'on':''}" data-k="${k}">${SECTIONS[k].label}</button>`).join('');
+  document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{cur=b.dataset.k;$('#q').value='';render();});
+}
+function render(){
+  renderTabs();
+  const sec=SECTIONS[cur];
+  const q=norm($('#q').value);
+  const all=data[cur];
+  let items=all.slice().sort((a,b)=>(a.titre||'').localeCompare(b.titre||'','fr',{numeric:true,sensitivity:'base'}));
+  if(q) items=items.filter(it=>sec.fields.some(f=>norm(it[f.k]).includes(q)));
+  $('#count').textContent=q?`${items.length} résultat(s) sur ${all.length}`:`${all.length} élément(s)`;
+  if(!items.length){
+    $('#list').innerHTML=`<div class="empty">${all.length?'Aucun résultat.':'Cette rubrique est vide.<br>Touchez + pour ajouter '+sec.single+',<br>ou importez un fichier CSV via le menu ⋮.'}</div>`;
+    return;
+  }
+  $('#list').innerHTML=items.map(it=>{
+    const sub=sec.fields.slice(1).map(f=>it[f.k]?`${f.l} : ${esc(it[f.k])}`:'').filter(Boolean).join(' · ');
+    return `<div class="card" data-id="${it.id}"><div class="t" dir="auto">${esc(it.titre)}</div>${sub?`<div class="s" dir="auto">${sub}</div>`:''}</div>`;
+  }).join('');
+  document.querySelectorAll('.card').forEach(c=>c.onclick=()=>openForm(c.dataset.id));
+}
+
+function openForm(id){
+  editId=id||null;
+  const sec=SECTIONS[cur];
+  const it=id?data[cur].find(x=>x.id===id):{};
+  $('#formSheet').innerHTML=`<h2>${id?'Modifier':'Ajouter'} ${id?'':sec.single}</h2>`+
+    sec.fields.map(f=>`<label>${f.l}${f.req?' *':''}</label><input class="inp" data-k="${f.k}" dir="auto" autocomplete="off" value="${esc(it[f.k]||'')}">`).join('')+
+    `<div class="row">${id?'<button class="btn del" id="fDel">Supprimer</button>':''}<button class="btn" id="fCancel">Annuler</button><button class="btn pri" id="fSave">Enregistrer</button></div>`;
+  $('#formVeil').classList.add('on');
+  $('#fCancel').onclick=closeForm;
+  $('#fSave').onclick=submitForm;
+  if($('#fDel'))$('#fDel').onclick=()=>{
+    if(confirm('Supprimer définitivement cet élément ?')){
+      data[cur]=data[cur].filter(x=>x.id!==editId);
+      if(save()){closeForm();render();toast('Supprimé.');}
+    }
+  };
+}
+function closeForm(){$('#formVeil').classList.remove('on');editId=null;}
+function submitForm(){
+  const rec={};
+  document.querySelectorAll('#formSheet .inp').forEach(i=>rec[i.dataset.k]=i.value.trim());
+  if(!rec.titre){toast('Le titre est obligatoire.');return;}
+  if(editId){
+    const i=data[cur].findIndex(x=>x.id===editId);
+    data[cur][i]=Object.assign({id:editId},rec);
+  }else{
+    data[cur].push(Object.assign({id:uid()},rec));
+  }
+  if(save()){closeForm();render();toast('Enregistré.');}
+}
+
+/* ---------- CSV ---------- */
+function parseCSV(text){
+  text=text.replace(/^﻿/,'');
+  const first=text.split(/\r?\n/,1)[0]||'';
+  const cnt={';':0,',':0,'\t':0};
+  let q=false;
+  for(const ch of first){if(ch==='"')q=!q;else if(!q&&ch in cnt)cnt[ch]++;}
+  const d=Object.keys(cnt).sort((a,b)=>cnt[b]-cnt[a])[0];
+  const delim=cnt[d]>0?d:';';
+  const rows=[];let row=[],cell='',inq=false;
+  for(let i=0;i<text.length;i++){
+    const c=text[i];
+    if(inq){
+      if(c==='"'){ if(text[i+1]==='"'){cell+='"';i++;} else inq=false; }
+      else cell+=c;
+    }else if(c==='"'){inq=true;}
+    else if(c===delim){row.push(cell);cell='';}
+    else if(c==='\n'||c==='\r'){
+      if(c==='\r'&&text[i+1]==='\n')i++;
+      row.push(cell);cell='';
+      if(row.some(x=>x.trim()!==''))rows.push(row);
+      row=[];
+    }else cell+=c;
+  }
+  row.push(cell);
+  if(row.some(x=>x.trim()!==''))rows.push(row);
+  return rows;
+}
+function importRows(rows){
+  const sec=SECTIONS[cur];
+  if(!rows.length)return {added:0,skipped:0};
+  const map=rows[0].map(h=>{
+    const n=norm(h);
+    for(const f of sec.fields){ if((ALIASES[f.k]||[]).some(a=>norm(a)===n))return f.k; }
+    return null;
+  });
+  let start=0, cols;
+  if(map.some(Boolean)){start=1;cols=map;}
+  else cols=sec.fields.map(f=>f.k);
+  const seen=new Set(data[cur].map(it=>sec.fields.map(f=>norm(it[f.k])).join('|')));
+  let added=0,skipped=0;
+  for(let r=start;r<rows.length;r++){
+    const rec={};
+    cols.forEach((k,i)=>{if(k)rec[k]=(rows[r][i]||'').trim();});
+    if(!rec.titre){skipped++;continue;}
+    sec.fields.forEach(f=>{if(rec[f.k]==null)rec[f.k]='';});
+    const key=sec.fields.map(f=>norm(rec[f.k])).join('|');
+    if(seen.has(key)){skipped++;continue;}
+    seen.add(key);
+    data[cur].push(Object.assign({id:uid()},rec));
+    added++;
+  }
+  return {added,skipped};
+}
+function csvEscape(v){v=v==null?'':String(v);return /[;,"\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}
+function download(name,text){
+  const blob=new Blob(['﻿'+text],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);a.download=name;
+  document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+}
+function exportCSV(){
+  const sec=SECTIONS[cur];
+  const lines=[sec.fields.map(f=>f.l).join(';')];
+  data[cur].forEach(it=>lines.push(sec.fields.map(f=>csvEscape(it[f.k])).join(';')));
+  download(`${cur}.csv`,lines.join('\r\n'));
+  toast('Fichier exporté.');
+}
+function templateCSV(){
+  const sec=SECTIONS[cur];
+  download(`modele-${cur}.csv`,sec.fields.map(f=>f.l).join(';')+'\r\n');
+}
+
+/* ---------- Menu & événements ---------- */
+$('#add').onclick=()=>openForm(null);
+$('#q').oninput=render;
+$('#menuBtn').onclick=()=>$('#menuVeil').classList.add('on');
+$('#mClose').onclick=()=>$('#menuVeil').classList.remove('on');
+$('#mExport').onclick=()=>{$('#menuVeil').classList.remove('on');exportCSV();};
+$('#mTemplate').onclick=()=>{$('#menuVeil').classList.remove('on');templateCSV();};
+$('#mImport').onclick=()=>{$('#menuVeil').classList.remove('on');$('#file').click();};
+$('#file').onchange=e=>{
+  const f=e.target.files[0];if(!f)return;
+  const rd=new FileReader();
+  rd.onload=()=>{
+    try{
+      const res=importRows(parseCSV(String(rd.result)));
+      if(save()){render();toast(`${res.added} ajouté(s), ${res.skipped} ignoré(s) (doublons ou sans titre).`);}
+    }catch(err){toast('Fichier illisible.');}
+    e.target.value='';
+  };
+  rd.readAsText(f,'utf-8');
+};
+['formVeil','menuVeil'].forEach(id=>{
+  $('#'+id).addEventListener('click',e=>{if(e.target.id===id)$('#'+id).classList.remove('on');});
+});
+
+render();
+if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(()=>{});}
+if(navigator.storage&&navigator.storage.persist){navigator.storage.persist().catch(()=>{});}
+</script>
+</body>
+</html>
