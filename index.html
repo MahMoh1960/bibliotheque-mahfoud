@@ -160,7 +160,7 @@ function render(){
   $('#list').innerHTML=items.map(it=>{
     const sub=sec.fields.slice(1).map(f=>it[f.k]?`${f.l} : ${esc(it[f.k])}`:'').filter(Boolean).join(' · ');
     const linked=NATIVE&&it.uri;
-    return `<div class="card" data-id="${it.id}"><div class="cmain"><div class="t" dir="auto">${esc(it.titre)}</div>${sub?`<div class="s" dir="auto">${sub}</div>`:''}${linked?'<span class="badge ok">📖 Toucher pour ouvrir</span>':''}${it.verif?'<span class="badge">⚠ À vérifier</span>':''}</div><button class="edit" data-edit="${it.id}" aria-label="Modifier">✏️</button></div>`;
+    return `<div class="card" data-id="${it.id}"><div class="cmain"><div class="t" dir="auto">${esc(it.titre)}</div>${sub?`<div class="s" dir="auto">${sub}</div>`:''}${it.verif?'<span class="badge">⚠ À vérifier</span>':''}</div><button class="edit" data-edit="${it.id}" aria-label="Modifier">✏️</button></div>`;
   }).join('');
   document.querySelectorAll('.card').forEach(c=>c.onclick=()=>{
     const it=data[cur].find(x=>x.id===c.dataset.id);
