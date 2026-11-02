@@ -62,6 +62,27 @@ label{display:block;color:var(--muted);font-size:15px;margin:12px 0 4px}
 textarea.inp{height:auto;min-height:230px;padding:12px;line-height:1.5;resize:vertical;font-family:inherit;font-size:16px}
 select.inp{font-size:16px}
 .toast{position:fixed;left:50%;bottom:100px;transform:translateX(-50%);background:var(--surface2);color:var(--text);border:1px solid var(--line);padding:12px 16px;border-radius:12px;z-index:30;display:none;max-width:90%;text-align:center}
+[hidden]{display:none!important}
+.sheet h3{margin:22px 0 4px;font-size:17px;color:var(--accent)}
+.sug{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.sug .chip{margin:0;height:32px;font-size:13px;padding:0 11px}
+.tag.t2{border-color:var(--line);color:var(--muted)}
+.meta{margin-top:5px;line-height:1.75}
+.st{display:inline-block;border:1px solid var(--line);color:var(--muted);border-radius:8px;font-size:12px;padding:0 7px;margin-inline-end:6px}
+.st.encours{border-color:#5b8def;color:#8fb1ff}
+.st.termine{border-color:#3d7a4d;color:#8fd19e}
+details.ref{margin-top:16px;border:1px solid var(--line);border-radius:12px;padding:0 12px 14px;background:var(--bg)}
+details.ref summary{padding:14px 0 4px;color:var(--accent);font-size:16px}
+.refbox{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:12px;font-size:15px;line-height:1.5;-webkit-user-select:text;user-select:text}
+.warn{color:var(--accent);font-size:13px;margin-top:6px}
+label.cbx{display:flex;align-items:flex-start;gap:10px;margin-top:16px;color:var(--text);font-size:15px;line-height:1.4}
+label.cbx input{width:22px;height:22px;flex:none;margin:0}
+#lock{position:fixed;inset:0;z-index:100;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:24px}
+.lbox{width:100%;max-width:340px;text-align:center}
+.lbox .lic{font-size:56px}
+.lbox h2{margin:8px 0 6px;font-size:20px;color:var(--accent)}
+#lockIn{text-align:center;letter-spacing:.35em;font-size:26px;margin-top:14px}
+#lockMsg{margin:6px 0 0;min-height:20px}
 </style>
 </head>
 <body>
@@ -88,37 +109,45 @@ select.inp{font-size:16px}
   <button id="mExport">⬇️ Exporter cette rubrique (CSV)</button>
   <button id="mTemplate">📄 Télécharger un modèle CSV</button>
   <button id="mNotesTxt">📝 Exporter les notes (TXT)</button>
+  <button id="mBiblio">📚 Exporter la bibliographie (TXT)</button>
   <button id="mBackup">💾 Sauvegarde complète (exporter)</button>
   <button id="mRestore">♻️ Restaurer une sauvegarde</button>
+  <button id="mSettings">⚙️ Réglages (PIN, références)</button>
   <button id="mClose">Fermer</button>
   <div class="note">Faites une sauvegarde complète de temps en temps : elle contient vos livres, magazines, journaux et notes. Les données sont conservées uniquement sur ce téléphone.</div>
 </div></div>
 <input type="file" id="file" accept=".csv,.txt,.json,text/csv,text/plain,application/json" hidden>
 <input type="file" id="pdfs" accept=".pdf,application/pdf" multiple hidden>
 <div class="toast" id="toast"></div>
+<div id="lock" hidden><div class="lbox"><div class="lic">🔒</div><h2>Bibliothèque de Mahfoud</h2><div class="note" id="lockMsg">Entrez votre code PIN</div><input class="inp" id="lockIn" type="password" inputmode="numeric" maxlength="8" autocomplete="off" aria-label="Code PIN"><button class="btn pri" id="lockOk" style="width:100%;margin-top:14px">Déverrouiller</button></div></div>
 
 <script>
 const KEY='bibliotheque_mahfoud_v1';
 const SECTIONS={
-  livres:{label:'Livres',single:'un livre',extra:['fichier'],fields:[
+  livres:{label:'Livres',single:'un livre',ref:true,statut:true,extra:['fichier','annee','lieu','statut','etiquettes'],fields:[
     {k:'titre',l:'Titre',req:true},{k:'auteur',l:'Auteur'},{k:'edition',l:'Édition'}]},
-  magazines:{label:'Magazines',single:'un magazine',fields:[
+  magazines:{label:'Magazines',single:'un magazine',statut:true,extra:['statut','etiquettes'],fields:[
     {k:'titre',l:'Titre',req:true},{k:'numero',l:'Numéro'},{k:'date',l:'Date'}]},
-  journaux:{label:'Journaux',single:'un journal',fields:[
+  journaux:{label:'Journaux',single:'un journal',statut:true,extra:['statut','etiquettes'],fields:[
     {k:'titre',l:'Titre',req:true},{k:'date',l:'Date'}]}
 };
+const LABELS={fichier:'Fichier',annee:'Année',lieu:'Lieu',statut:'Statut',etiquettes:'Étiquettes'};
 const ALIASES={
   titre:['titre','title','intitule','عنوان','العنوان'],
   auteur:['auteur','author','المؤلف','مؤلف'],
   edition:['edition','editions','editeur','الطبعة','طبعة'],
   numero:['numero','no','n','number','العدد'],
   date:['date','التاريخ'],
-  fichier:['fichier','nom du fichier','file','filename']
+  fichier:['fichier','nom du fichier','file','filename'],
+  annee:['annee','year','annee de publication','سنة','السنة'],
+  lieu:['lieu','ville','place','lieu d edition','lieu d\'edition'],
+  statut:['statut','status','etat','statut de lecture'],
+  etiquettes:['etiquettes','etiquette','tags','tag','mots-cles','mots cles']
 };
 const $=s=>document.querySelector(s);
 const NATIVE=(typeof Android!=='undefined');   // vrai dans l'application Android
 const NOTE_TYPES=['Note','Résumé','Remarque','Citation','Idée'];
-let cur='livres', editId=null, onlyCheck=false, typeFilter='', bookFilter='', restoreMode=false;
+let cur='livres', editId=null, onlyCheck=false, typeFilter='', bookFilter='', statFilter='', tagFilter='', restoreMode=false;
 let data=load();
 
 function load(){
@@ -148,17 +177,168 @@ function toast(msg){
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
 
+/* ---------- Réglages, statuts, étiquettes, SHA-256 ---------- */
+const SKEY='bibliotheque_mahfoud_reglages';
+let settings=loadSettings();
+function loadSettings(){
+  const base={pin:null,pinLen:0,delay:60,secure:false,refStyle:'apa'};
+  try{const d=JSON.parse(localStorage.getItem(SKEY));if(d&&typeof d==='object')return Object.assign(base,d);}catch(e){}
+  if(NATIVE){try{const d=JSON.parse(Android.loadSettings());if(d&&typeof d==='object')return Object.assign(base,d);}catch(e){}}
+  return base;
+}
+function saveSettings(){
+  const s=JSON.stringify(settings);
+  try{localStorage.setItem(SKEY,s);}catch(e){}
+  if(NATIVE){try{Android.saveSettings(s);}catch(e){}}
+  syncLock();
+}
+function syncLock(){
+  if(NATIVE){try{Android.setLock(!!settings.pin,settings.delay|0,!!settings.secure);}catch(e){}}
+}
+const STATUTS={alire:'À lire',encours:'En cours',termine:'Terminé'};
+function statOf(it){return STATUTS[it.statut]?it.statut:'alire';}
+function statFromLabel(s){
+  const n=norm(s);
+  if(/^(termin|fini|lu$|lue$|read|done|complet)/.test(n))return 'termine';
+  if(/(cours|reading|progress|commenc)/.test(n))return 'encours';
+  return 'alire';
+}
+
+function parseTags(s){
+  const out=[],seen=new Set();
+  String(s||'').split(/[,;،\n]/).forEach(t=>{
+    t=t.trim().replace(/^#+/,'').trim().replace(/\s+/g,' ');
+    const k=norm(t);
+    if(t&&!seen.has(k)){seen.add(k);out.push(t);}
+  });
+  return out;
+}
+function tagsOf(it){return Array.isArray(it.tags)?it.tags:[];}
+function hasTag(it,t){const k=norm(t);return tagsOf(it).some(x=>norm(x)===k);}
+function tagsIn(arr){
+  const cnt=new Map();
+  arr.forEach(it=>tagsOf(it).forEach(t=>{
+    const key=norm(t),o=cnt.get(key)||{t,n:0};
+    o.n++;cnt.set(key,o);
+  }));
+  return Array.from(cnt.values()).sort((a,b)=>b.n-a.n||a.t.localeCompare(b.t,'fr')).map(o=>o.t);
+}
+function allTags(){return tagsIn([].concat(data.livres,data.magazines,data.journaux,data.notes));}
+function tagField(tags){
+  return `<label>Étiquettes</label><input class="inp" id="fTags" data-k="etiquettes" dir="auto" autocomplete="off" placeholder="ex. management, thèse, à citer" value="${esc(tagsOf({tags}).join(', '))}"><div class="sug" id="tagSug"></div>`;
+}
+function bindTagField(){
+  const inp=$('#fTags');
+  if(!inp)return;
+  const draw=()=>{
+    const have=new Set(parseTags(inp.value).map(norm));
+    const box=$('#tagSug');
+    box.innerHTML=allTags().slice(0,24).map(t=>`<button type="button" class="chip${have.has(norm(t))?' on':''}" data-t="${esc(t)}">${esc(t)}</button>`).join('');
+    box.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{
+      const list=parseTags(inp.value),k=norm(b.dataset.t);
+      const i=list.findIndex(x=>norm(x)===k);
+      if(i>=0)list.splice(i,1);else list.push(b.dataset.t);
+      inp.value=list.join(', ');draw();
+    });
+  };
+  inp.oninput=draw;
+  draw();
+}
+
+const SHA_K=(()=>{
+  const k=[],h=[];let n=2;
+  const isP=x=>{for(let i=2;i*i<=x;i++)if(x%i===0)return false;return true;};
+  while(k.length<64){
+    if(isP(n)){
+      k.push(Math.floor((Math.cbrt(n)%1)*4294967296));
+      if(h.length<8)h.push(Math.floor((Math.sqrt(n)%1)*4294967296));
+    }
+    n++;
+  }
+  return {k,h};
+})();
+function sha256(str){
+  const bytes=Array.from(new TextEncoder().encode(str));
+  const bits=bytes.length*8;
+  bytes.push(0x80);
+  while(bytes.length%64!==56)bytes.push(0);
+  for(let i=7;i>=0;i--)bytes.push(i>=4?Math.floor(bits/4294967296)>>>((i-4)*8)&255:(bits>>>(i*8))&255);
+  const H=SHA_K.h.slice(),K=SHA_K.k,w=new Array(64);
+  const rotr=(x,n)=>(x>>>n)|(x<<(32-n));
+  for(let o=0;o<bytes.length;o+=64){
+    for(let i=0;i<16;i++)w[i]=(bytes[o+4*i]<<24)|(bytes[o+4*i+1]<<16)|(bytes[o+4*i+2]<<8)|bytes[o+4*i+3];
+    for(let i=16;i<64;i++){
+      const s0=rotr(w[i-15],7)^rotr(w[i-15],18)^(w[i-15]>>>3);
+      const s1=rotr(w[i-2],17)^rotr(w[i-2],19)^(w[i-2]>>>10);
+      w[i]=(w[i-16]+s0+w[i-7]+s1)|0;
+    }
+    let a=H[0],b=H[1],c=H[2],d=H[3],e=H[4],f=H[5],g=H[6],h=H[7];
+    for(let i=0;i<64;i++){
+      const S1=rotr(e,6)^rotr(e,11)^rotr(e,25);
+      const ch=(e&f)^(~e&g);
+      const t1=(h+S1+ch+K[i]+w[i])|0;
+      const S0=rotr(a,2)^rotr(a,13)^rotr(a,22);
+      const maj=(a&b)^(a&c)^(b&c);
+      const t2=(S0+maj)|0;
+      h=g;g=f;f=e;e=(d+t1)|0;d=c;c=b;b=a;a=(t1+t2)|0;
+    }
+    H[0]=(H[0]+a)|0;H[1]=(H[1]+b)|0;H[2]=(H[2]+c)|0;H[3]=(H[3]+d)|0;
+    H[4]=(H[4]+e)|0;H[5]=(H[5]+f)|0;H[6]=(H[6]+g)|0;H[7]=(H[7]+h)|0;
+  }
+  return H.map(x=>(x>>>0).toString(16).padStart(8,'0')).join('');
+}
+function hashPin(pin,salt){
+  let h=sha256(salt+':'+pin);
+  for(let i=0;i<2000;i++)h=sha256(h+salt+pin);
+  return h;
+}
+function newSalt(){
+  try{const a=new Uint8Array(12);crypto.getRandomValues(a);return Array.from(a,x=>x.toString(16).padStart(2,'0')).join('');}
+  catch(e){return uid()+uid();}
+}
+function copyText(t){
+  if(NATIVE){try{Android.copyText(t);toast('Copié.');return;}catch(e){}}
+  try{navigator.clipboard.writeText(t).then(()=>toast('Copié.'),()=>toast('Copie impossible.'));return;}catch(e){}
+  toast('Copie impossible.');
+}
+
 function renderTabs(){
   const keys=Object.keys(SECTIONS).concat('notes');
   $('#tabs').innerHTML=keys.map(k=>
     `<button class="tab ${k===cur?'on':''}" data-k="${k}">${k==='notes'?'📝 Notes':SECTIONS[k].label}</button>`).join('');
-  document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{cur=b.dataset.k;$('#q').value='';onlyCheck=false;typeFilter='';bookFilter='';render();});
+  document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{cur=b.dataset.k;$('#q').value='';onlyCheck=false;typeFilter='';bookFilter='';statFilter='';tagFilter='';render();});
   const on=document.querySelector('.tab.on');
   if(on&&on.scrollIntoView){try{on.scrollIntoView({inline:'center',block:'nearest'});}catch(e){}}
 }
+function setChips(chips){
+  const tp=$('#types');
+  tp.hidden=false;
+  tp.innerHTML=chips.map(c=>`<button class="chip${c.on?' on':''}" data-a="${c.a}" data-v="${esc(c.v)}">${esc(c.l)}</button>`).join('');
+  tp.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{
+    const a=b.dataset.a,v=b.dataset.v;
+    if(a==='s')statFilter=v;
+    else if(a==='t')typeFilter=v;
+    else if(a==='b')bookFilter='';
+    else if(a==='g')tagFilter=(tagFilter&&norm(tagFilter)===norm(v))?'':v;
+    render();
+  });
+}
+function tagChips(arr){
+  return tagsIn(arr).map(t=>({a:'g',v:t,l:'#'+t,on:!!tagFilter&&norm(tagFilter)===norm(t)}));
+}
+function sectionItems(){
+  const sec=SECTIONS[cur];
+  const q=norm($('#q').value);
+  let items=data[cur].slice().sort((a,b)=>(a.titre||'').localeCompare(b.titre||'','fr',{numeric:true,sensitivity:'base'}));
+  if(onlyCheck)items=items.filter(it=>it.verif);
+  if(statFilter)items=items.filter(it=>statOf(it)===statFilter);
+  if(tagFilter)items=items.filter(it=>hasTag(it,tagFilter));
+  if(q)items=items.filter(it=>sec.fields.some(f=>norm(it[f.k]).includes(q))||norm(it.fichier).includes(q)||
+    norm(it.annee).includes(q)||norm(it.lieu).includes(q)||tagsOf(it).some(t=>norm(t).includes(q)));
+  return items;
+}
 function render(){
   renderTabs();
-  $('#types').hidden=true;
   if(cur==='notes'){renderNotes();return;}
   const sec=SECTIONS[cur];
   const q=norm($('#q').value);
@@ -169,18 +349,24 @@ function render(){
   chk.hidden=!nCheck;
   chk.className='chip'+(onlyCheck?' on':'');
   chk.textContent=onlyCheck?`Afficher tout`:`⚠ À vérifier (${nCheck})`;
-  let items=all.slice().sort((a,b)=>(a.titre||'').localeCompare(b.titre||'','fr',{numeric:true,sensitivity:'base'}));
-  if(onlyCheck) items=items.filter(it=>it.verif);
-  if(q) items=items.filter(it=>sec.fields.some(f=>norm(it[f.k]).includes(q))||norm(it.fichier).includes(q));
-  $('#count').textContent=(q||onlyCheck)?`${items.length} résultat(s) sur ${all.length}`:`${all.length} élément(s)`;
+  if(tagFilter&&!tagsIn(all).some(t=>norm(t)===norm(tagFilter)))tagFilter='';
+  setChips([{a:'s',v:'',l:'Tous',on:!statFilter}].concat(
+    Object.keys(STATUTS).map(k=>({a:'s',v:k,l:STATUTS[k],on:statFilter===k})),tagChips(all)));
+  const items=sectionItems();
+  const filtered=q||onlyCheck||statFilter||tagFilter;
+  $('#count').textContent=filtered?`${items.length} résultat(s) sur ${all.length}`:`${all.length} élément(s)`;
   if(!items.length){
     $('#list').innerHTML=`<div class="empty">${all.length?'Aucun résultat.':'Cette rubrique est vide.<br>Touchez + pour ajouter '+sec.single+',<br>ou importez un fichier CSV via le menu ⋮.'}</div>`;
     return;
   }
   $('#list').innerHTML=items.map(it=>{
     const sub=sec.fields.slice(1).map(f=>it[f.k]?`${f.l} : ${esc(it[f.k])}`:'').filter(Boolean).join(' · ');
-    const linked=NATIVE&&it.uri;
-    return `<div class="card" data-id="${it.id}"><div class="cmain"><div class="t" dir="auto">${esc(it.titre)}</div>${sub?`<div class="s" dir="auto">${sub}</div>`:''}${it.verif?'<span class="badge">⚠ À vérifier</span>':''}</div><button class="edit" data-edit="${it.id}" aria-label="Modifier">✏️</button></div>`;
+    const st=statOf(it);
+    let meta='';
+    if(st==='encours')meta+=`<span class="st encours">📖 En cours${it.lu?' · p. '+it.lu+(it.total?'/'+it.total:''):''}</span>`;
+    if(st==='termine')meta+='<span class="st termine">✓ Terminé</span>';
+    meta+=tagsOf(it).map(t=>`<span class="tag">${esc(t)}</span>`).join('');
+    return `<div class="card" data-id="${it.id}"><div class="cmain"><div class="t" dir="auto">${esc(it.titre)}</div>${sub?`<div class="s" dir="auto">${sub}</div>`:''}${meta?`<div class="meta" dir="auto">${meta}</div>`:''}${it.verif?'<span class="badge">⚠ À vérifier</span>':''}</div><button class="edit" data-edit="${it.id}" aria-label="Modifier">✏️</button></div>`;
   }).join('');
   document.querySelectorAll('.card').forEach(c=>c.onclick=()=>{
     const it=data[cur].find(x=>x.id===c.dataset.id);
@@ -200,22 +386,28 @@ function openForm(id){
     :'';
   $('#formSheet').innerHTML=`<h2>${id?'Modifier':'Ajouter'} ${id?'':sec.single}</h2>`+
     sec.fields.map(f=>`<label>${f.l}${f.req?' *':''}</label><input class="inp" data-k="${f.k}" dir="auto" autocomplete="off" value="${esc(it[f.k]||'')}">`).join('')+
+    (sec.statut?`<label>Statut de lecture</label><select class="inp" data-k="statut">${Object.keys(STATUTS).map(k=>`<option value="${k}"${statOf(it)===k?' selected':''}>${STATUTS[k]}</option>`).join('')}</select>`+
+      (it.lu?`<div class="note">Dernière page lue : ${it.lu}${it.total?' sur '+it.total:''}.</div>`:''):'')+
+    tagField(it.tags)+
     (it.fichier?`<div class="note" dir="auto">📄 Fichier : ${esc(it.fichier)}${NATIVE?(it.uri?' · 🔗 relié':' · non relié (importez le dossier des PDF)'):''}</div>`:'')+
     (NATIVE&&it.uri?'<button class="btn" id="fExt" style="width:100%;margin-top:14px">📖 Ouvrir avec une autre application</button>':'')+
     noteBtns+
+    (sec.ref?refBlock(it):'')+
     `<div class="row">${id?'<button class="btn del" id="fDel">Supprimer</button>':''}<button class="btn" id="fCancel">Annuler</button><button class="btn pri" id="fSave">Enregistrer</button></div>`;
   $('#formVeil').classList.add('on');
   $('#fCancel').onclick=closeForm;
   $('#fSave').onclick=submitForm;
+  bindTagField();
+  if(sec.ref)bindRef();
   if($('#fExt'))$('#fExt').onclick=()=>Android.openPdfExternal(it.uri);
   if($('#fNote'))$('#fNote').onclick=()=>{
     const bid=editId;closeForm();
-    cur='notes';typeFilter='';bookFilter='';$('#q').value='';render();
+    cur='notes';typeFilter='';bookFilter='';statFilter='';tagFilter='';$('#q').value='';render();
     openNoteForm(null,{bookId:bid});
   };
   if($('#fSee'))$('#fSee').onclick=()=>{
     const bid=editId;closeForm();
-    cur='notes';typeFilter='';bookFilter=bid;$('#q').value='';render();
+    cur='notes';typeFilter='';bookFilter=bid;statFilter='';tagFilter='';$('#q').value='';render();
   };
   if($('#fDel'))$('#fDel').onclick=()=>{
     // confirmation intégrée : la fenêtre confirm() du navigateur n'existe pas dans l'application Android
@@ -232,8 +424,10 @@ function openForm(id){
 function closeForm(){$('#formVeil').classList.remove('on');editId=null;}
 function submitForm(){
   const rec={};
-  document.querySelectorAll('#formSheet .inp').forEach(i=>rec[i.dataset.k]=i.value.trim());
+  document.querySelectorAll('#formSheet .inp[data-k]').forEach(i=>rec[i.dataset.k]=i.value.trim());
   if(!rec.titre){toast('Le titre est obligatoire.');return;}
+  rec.tags=parseTags(rec.etiquettes);
+  delete rec.etiquettes;
   if(editId){
     const i=data[cur].findIndex(x=>x.id===editId);
     data[cur][i]=Object.assign({},data[cur][i],rec,{verif:false});
@@ -241,6 +435,108 @@ function submitForm(){
     data[cur].push(Object.assign({id:uid()},rec));
   }
   if(save()){closeForm();render();toast('Enregistré.');}
+}
+
+/* ---------- Références bibliographiques ---------- */
+function splitAuthors(s){
+  let etal=false;
+  s=String(s||'').replace(/[\s,]*\bet al\.?/i,()=>{etal=true;return '';});
+  const list=s.split(/\s*;\s*|\s+(?:&|et|and|و)\s+/i).map(x=>x.trim()).filter(Boolean).map(parseName);
+  return {list,etal};
+}
+function parseName(a){
+  // « Nom, Prénom » est lu tel quel ; « Prénom Nom » : le dernier mot est pris pour le nom de famille
+  if(a.includes(',')){const i=a.indexOf(',');return {nom:a.slice(0,i).trim(),pre:a.slice(i+1).trim()};}
+  const w=a.split(/\s+/);
+  if(w.length===1)return {nom:a,pre:''};
+  return {nom:w[w.length-1],pre:w.slice(0,-1).join(' ')};
+}
+function initials(pre){
+  return pre.split(/\s+/).filter(Boolean).map(t=>t.split('-').filter(Boolean).map(x=>Array.from(x)[0].toUpperCase()+'.').join('-')).join(' ');
+}
+function makeRef(b,style){
+  const titre=String(b.titre||'').trim();
+  if(!titre)return {html:'',text:'',missing:[]};
+  const A=splitAuthors(b.auteur);
+  const y=String(b.annee||'').trim(),pub=String(b.edition||'').trim(),lieu=String(b.lieu||'').trim();
+  const missing=[];
+  if(!A.list.length)missing.push('auteur');
+  if(!y)missing.push('année');
+  if(!pub)missing.push('éditeur (champ Édition)');
+  if(style==='iso'&&!lieu)missing.push('lieu d’édition');
+  const end=s=>/[.!?…]$/.test(s)?s:s+'.';
+  const T='\u0001'+end(titre)+'\u0002';
+  let s;
+  if(style==='iso'){
+    let au=A.list.map(n=>n.pre?n.nom.toUpperCase()+', '+n.pre:n.nom.toUpperCase()).join('; ');
+    if(au&&A.etal)au+=' et al.';
+    s=(au?end(au)+' ':'')+T+' '+(lieu||'[s.l.]')+' : '+(pub||'[s.n.]')+', '+(y||'[s.d.]')+'.';
+  }else{
+    const ap=A.list.map(n=>n.pre?n.nom+', '+initials(n.pre):n.nom);
+    let au=ap.length>2?ap.slice(0,-1).join(', ')+', & '+ap[ap.length-1]:ap.join(' & ');
+    if(au&&A.etal)au=ap.join(', ')+', et al.';
+    const yr='('+(y||'s.d.')+').';
+    s=au?end(au)+' '+yr+' '+T:T+' '+yr;
+    if(pub)s+=' '+end(pub);
+  }
+  return {html:esc(s).replace(/\u0001/g,'<i>').replace(/\u0002/g,'</i>'),text:s.replace(/[\u0001\u0002]/g,''),missing};
+}
+function citeText(b,page){
+  const A=splitAuthors(b.auteur).list;
+  const y=String(b.annee||'').trim()||'s.d.';
+  let who;
+  if(!A.length)who=b.titre||'';
+  else if(A.length===1)who=A[0].nom;
+  else if(A.length===2)who=A[0].nom+' & '+A[1].nom;
+  else who=A[0].nom+' et al.';
+  const pg=String(page||'').trim();
+  const p=pg?(/^\d+$/.test(pg)?'p. '+pg:pg):'';
+  return '('+who+', '+y+(p?', '+p:'')+')';
+}
+function refBlock(it){
+  const st=settings.refStyle==='iso'?'ISO 690':'APA 7';
+  return `<details class="ref"${it.annee||it.lieu?' open':''}><summary>📎 Référence bibliographique (${st})</summary>`+
+    `<label>Année de publication</label><input class="inp" data-k="annee" inputmode="numeric" dir="auto" autocomplete="off" value="${esc(it.annee||'')}">`+
+    `<label>Lieu d’édition</label><input class="inp" data-k="lieu" dir="auto" autocomplete="off" value="${esc(it.lieu||'')}">`+
+    `<div class="refbox" id="refBox" dir="auto"></div><div class="warn" id="refWarn"></div>`+
+    `<button type="button" class="btn" id="fCopyRef" style="width:100%;margin-top:10px">📋 Copier la référence</button>`+
+    `<div class="note">L’éditeur est lu dans le champ « Édition ». Le style se choisit dans ⚙️ Réglages. Vérifiez toujours la référence avec la page de titre du livre.</div></details>`;
+}
+function formRecord(){
+  const rec={};
+  document.querySelectorAll('#formSheet .inp[data-k]').forEach(i=>rec[i.dataset.k]=i.value.trim());
+  return rec;
+}
+function bindRef(){
+  const box=$('#refBox');
+  if(!box)return;
+  const upd=()=>{
+    const r=makeRef(formRecord(),settings.refStyle);
+    box.innerHTML=r.html||'<span style="color:var(--muted)">Renseignez le titre.</span>';
+    $('#refWarn').textContent=r.missing.length?'À compléter : '+r.missing.join(', ')+'.':'';
+  };
+  document.querySelectorAll('#formSheet .inp[data-k]').forEach(i=>i.addEventListener('input',upd));
+  $('#fCopyRef').onclick=()=>{
+    const r=makeRef(formRecord(),settings.refStyle);
+    if(!r.text){toast('Renseignez le titre.');return;}
+    copyText(r.text);
+  };
+  upd();
+}
+function exportBiblio(){
+  const style=settings.refStyle==='iso'?'iso':'apa';
+  const src=(cur==='livres')?sectionItems():data.livres;
+  if(!src.length){toast('Aucun livre à exporter.');return;}
+  const refs=src.map(b=>({b,r:makeRef(b,style)})).sort((x,y)=>x.r.text.localeCompare(y.r.text,'fr',{sensitivity:'base'}));
+  const out=['BIBLIOGRAPHIE — style '+(style==='iso'?'ISO 690':'APA 7'),'Exportée le '+fmtDate(Date.now())+' · '+refs.length+' référence(s)',''];
+  refs.forEach(x=>out.push(x.r.text,''));
+  const inc=refs.filter(x=>x.r.missing.length);
+  if(inc.length){
+    out.push('—'.repeat(20),'À compléter avant utilisation :');
+    inc.forEach(x=>out.push('• '+x.b.titre+' : '+x.r.missing.join(', ')));
+  }
+  download('bibliographie.txt',out.join('\n'));
+  if(!NATIVE)toast('Bibliographie exportée.');
 }
 
 /* ---------- Notes de lecture ---------- */
@@ -258,24 +554,21 @@ function renderNotes(){
   const q=norm($('#q').value);
   const all=data.notes;
   $('#chk').hidden=true;
-  const tp=$('#types');
-  tp.hidden=false;
   const bf=bookById(bookFilter);
-  tp.innerHTML=(bf?`<button class="chip on" data-b="1">📖 ${esc(bf.titre)} ✕</button>`:'')+
-    ['Tous'].concat(NOTE_TYPES).map(t=>{const v=t==='Tous'?'':t;return `<button class="chip${typeFilter===v?' on':''}" data-t="${v}">${t}</button>`;}).join('');
-  tp.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{
-    if(b.dataset.b){bookFilter='';}else{typeFilter=b.dataset.t;}
-    renderNotes();
-  });
+  if(tagFilter&&!tagsIn(all).some(t=>norm(t)===norm(tagFilter)))tagFilter='';
+  setChips((bf?[{a:'b',v:'',l:'📖 '+bf.titre+' ✕',on:true}]:[]).concat(
+    ['Tous'].concat(NOTE_TYPES).map(t=>{const v=t==='Tous'?'':t;return {a:'t',v,l:t,on:typeFilter===v};}),
+    tagChips(all)));
   let items=all.slice().sort((a,b)=>(b.updated||0)-(a.updated||0));
   if(typeFilter)items=items.filter(n=>n.type===typeFilter);
   if(bookFilter)items=items.filter(n=>n.bookId===bookFilter);
+  if(tagFilter)items=items.filter(n=>hasTag(n,tagFilter));
   if(q)items=items.filter(n=>{
     const b=bookById(n.bookId);
     return norm(n.titre).includes(q)||norm(n.texte).includes(q)||norm(n.type).includes(q)||norm(n.bookTitle).includes(q)||
-      (b&&(norm(b.titre).includes(q)||norm(b.auteur).includes(q)));
+      tagsOf(n).some(t=>norm(t).includes(q))||(b&&(norm(b.titre).includes(q)||norm(b.auteur).includes(q)));
   });
-  const filtered=q||typeFilter||bookFilter;
+  const filtered=q||typeFilter||bookFilter||tagFilter;
   $('#count').textContent=filtered?`${items.length} note(s) sur ${all.length}`:`${all.length} note(s)`;
   if(!items.length){
     $('#list').innerHTML=`<div class="empty">${all.length?'Aucune note ne correspond.':'Aucune note pour le moment.<br>Touchez + pour écrire une note, un résumé ou une remarque.'+(NATIVE?'<br>Dans le lecteur PDF, le bouton 📝 crée une note liée à la page lue.':'')}</div>`;
@@ -283,8 +576,9 @@ function renderNotes(){
   }
   $('#list').innerHTML=items.map(n=>{
     const meta=[bookLabelOf(n)?'📖 '+esc(bookLabelOf(n)):'',esc(pageLabel(n.page)),fmtDate(n.updated)].filter(Boolean).join(' · ');
+    const tg=tagsOf(n).map(t=>`<span class="tag t2">${esc(t)}</span>`).join('');
     return `<div class="card" data-id="${n.id}"><div class="cmain"><div class="t" dir="auto">${esc(noteTitle(n))}</div>`+
-      `<div class="nt" dir="auto"><span class="tag">${esc(n.type||'Note')}</span>${meta}</div>`+
+      `<div class="nt" dir="auto"><span class="tag">${esc(n.type||'Note')}</span>${tg}${meta}</div>`+
       (n.texte?`<div class="ex" dir="auto">${esc(n.texte)}</div>`:'')+`</div></div>`;
   }).join('');
   document.querySelectorAll('.card').forEach(c=>c.onclick=()=>openNoteForm(c.dataset.id));
@@ -294,7 +588,7 @@ function pageNumber(p){const m=String(p||'').match(/\d+/);return m?parseInt(m[0]
 
 function openNoteForm(id,pre){
   editId=id||null;
-  const n=id?data.notes.find(x=>x.id===id):Object.assign({type:'Note',bookId:'',page:'',titre:'',texte:''},pre||{});
+  const n=id?data.notes.find(x=>x.id===id):Object.assign({type:'Note',bookId:'',page:'',titre:'',texte:'',tags:[]},pre||{});
   if(!n){return;}
   const books=data.livres.slice().sort((a,b)=>(a.titre||'').localeCompare(b.titre||'','fr',{numeric:true,sensitivity:'base'}));
   const opts='<option value="">— Aucun livre —</option>'+books.map(b=>
@@ -305,24 +599,32 @@ function openNoteForm(id,pre){
     `<label>Page ou chapitre</label><input class="inp" id="nPage" dir="auto" autocomplete="off" value="${esc(n.page||'')}">`+
     `<label>Titre (facultatif)</label><input class="inp" id="nTitre" dir="auto" autocomplete="off" value="${esc(n.titre||'')}">`+
     `<label>Texte</label><textarea class="inp" id="nTexte" dir="auto">${esc(n.texte||'')}</textarea>`+
+    tagField(n.tags)+
     (id&&n.updated?`<div class="note">Modifiée le ${fmtDate(n.updated)} · créée le ${fmtDate(n.created)}</div>`:'')+
     '<div id="nOpenBox"></div>'+
     `<div class="row">${id?'<button class="btn del" id="fDel">Supprimer</button>':''}<button class="btn" id="fCancel">Annuler</button><button class="btn pri" id="fSave">Enregistrer</button></div>`;
   $('#formVeil').classList.add('on');
   $('#fCancel').onclick=closeForm;
   $('#fSave').onclick=()=>submitNote();
+  bindTagField();
   const refreshOpen=()=>{
     const b=bookById($('#nBook').value);
     const box=$('#nOpenBox');
-    if(NATIVE&&b&&b.uri){
-      const pg=pageNumber($('#nPage').value);
-      box.innerHTML=`<button class="btn" id="nOpen" style="width:100%;margin-top:14px">📖 Ouvrir le livre${pg?' (page '+pg+')':''}</button>`;
-      $('#nOpen').onclick=()=>{
-        const rec=collectNote();
-        if(rec.titre||rec.texte.trim()){if(!submitNote())return;}else closeForm();   // la note en cours est enregistrée avant l'ouverture
-        Android.openPdfAt(b.uri,pg);
-      };
-    }else box.innerHTML='';
+    const pg=pageNumber($('#nPage').value);
+    let h='';
+    if(b)h+='<button class="btn" id="nCite" style="width:100%;margin-top:14px">📋 Copier avec la référence</button>';
+    if(NATIVE&&b&&b.uri)h+=`<button class="btn" id="nOpen" style="width:100%;margin-top:14px">📖 Ouvrir le livre${pg?' (page '+pg+')':''}</button>`;
+    box.innerHTML=h;
+    if($('#nCite'))$('#nCite').onclick=()=>{
+      const t=$('#nTexte').value.trim();
+      if(!t){toast('Écrivez d’abord le texte à citer.');return;}
+      copyText('« '+t+' » '+citeText(b,$('#nPage').value));
+    };
+    if($('#nOpen'))$('#nOpen').onclick=()=>{
+      const rec=collectNote();
+      if(rec.titre||rec.texte.trim()){if(!submitNote())return;}else closeForm();   // la note en cours est enregistrée avant l'ouverture
+      Android.openPdfAt(b.uri,pg);
+    };
   };
   $('#nBook').onchange=refreshOpen;
   $('#nPage').oninput=refreshOpen;
@@ -342,7 +644,7 @@ function openNoteForm(id,pre){
 function collectNote(){
   const b=bookById($('#nBook').value);
   return {type:$('#nType').value,bookId:$('#nBook').value,bookTitle:b?b.titre:'',page:$('#nPage').value.trim(),
-    titre:$('#nTitre').value.trim(),texte:$('#nTexte').value.replace(/\s+$/,'')};
+    titre:$('#nTitre').value.trim(),texte:$('#nTexte').value.replace(/\s+$/,''),tags:parseTags($('#fTags').value)};
 }
 function submitNote(){
   const rec=collectNote();
@@ -375,7 +677,9 @@ function exportNotesTxt(){
     out.push('='.repeat(40),head,'='.repeat(40),'');
     g.notes.forEach(n=>{
       const meta=[n.type||'Note',pageLabel(n.page),fmtDate(n.updated)].filter(Boolean).join(' · ');
-      out.push('['+meta+']'+(n.titre?' '+n.titre:''),n.texte||'','');
+      out.push('['+meta+']'+(n.titre?' '+n.titre:''),n.texte||'');
+      if(tagsOf(n).length)out.push('Étiquettes : '+tagsOf(n).join(', '));
+      out.push('');
     });
   }
   download('notes-lecture.txt',out.join('\n'));
@@ -449,6 +753,8 @@ function importRows(rows){
     cols.forEach((k,i)=>{if(k)rec[k]=(rows[r][i]||'').trim();});
     if(!rec.titre){skipped++;continue;}
     sec.fields.forEach(f=>{if(rec[f.k]==null)rec[f.k]='';});
+    if(rec.etiquettes!=null){rec.tags=parseTags(rec.etiquettes);delete rec.etiquettes;}
+    if(rec.statut!=null){rec.statut=statFromLabel(rec.statut);}
     const key=sec.fields.map(f=>norm(rec[f.k])).join('|');
     if(seen.has(key)||(rec.fichier&&seenFiles.has(rec.fichier))){skipped++;continue;}
     if(rec.fichier)seenFiles.add(rec.fichier);
@@ -473,9 +779,10 @@ function mimeFor(name){
 function exportCSV(){
   const sec=SECTIONS[cur];
   const keys=sec.fields.map(f=>f.k).concat(sec.extra||[]);
-  const labels=sec.fields.map(f=>f.l).concat((sec.extra||[]).map(k=>k.charAt(0).toUpperCase()+k.slice(1)));
+  const labels=sec.fields.map(f=>f.l).concat((sec.extra||[]).map(k=>LABELS[k]||k));
+  const cell=(it,k)=>k==='etiquettes'?tagsOf(it).join(', '):(k==='statut'?STATUTS[statOf(it)]:it[k]);
   const lines=[labels.join(';')];
-  data[cur].forEach(it=>lines.push(keys.map(k=>csvEscape(it[k])).join(';')));
+  data[cur].forEach(it=>lines.push(keys.map(k=>csvEscape(cell(it,k))).join(';')));
   download(`${cur}.csv`,lines.join('\r\n'));
   if(!NATIVE)toast('Fichier exporté.');
 }
@@ -551,7 +858,20 @@ window.onNoteFromReader=function(uri,page){
   cur='notes';typeFilter='';bookFilter='';$('#q').value='';render();
   openNoteForm(null,{bookId:b?b.id:'',page:page?String(page):''});
 };
+window.onReadProgress=function(uri,page,total,note){
+  // appelée à la fermeture du lecteur PDF : mémorise la page lue et ajuste le statut
+  const b=data.livres.find(x=>x.uri===uri);
+  if(b&&page>0){
+    b.lu=page;
+    if(total>0)b.total=total;
+    if(total>1&&page>=total)b.statut='termine';
+    else if(page>1&&statOf(b)==='alire')b.statut='encours';
+    save();
+  }
+  if(note)window.onNoteFromReader(uri,page);else render();
+};
 window.handleBack=function(){
+  if(isLocked())return false;
   if($('#formVeil').classList.contains('on')){closeForm();return true;}
   if($('#menuVeil').classList.contains('on')){$('#menuVeil').classList.remove('on');return true;}
   return false;
@@ -616,6 +936,112 @@ $('#file').onchange=e=>{
   $('#'+id).addEventListener('click',e=>{if(e.target.id===id)$('#'+id).classList.remove('on');});
 });
 
+/* ---------- Réglages et code PIN ---------- */
+function pinInput(id){return `<input class="inp" id="${id}" type="password" inputmode="numeric" maxlength="8" autocomplete="off">`;}
+function openSettings(mode){
+  mode=mode||'main';
+  const on=!!settings.pin;
+  let h='<h2>⚙️ Réglages</h2>';
+  if(mode==='main'){
+    h+=`<label>Style des références bibliographiques</label><select class="inp" id="sRef"><option value="apa"${settings.refStyle!=='iso'?' selected':''}>APA 7</option><option value="iso"${settings.refStyle==='iso'?' selected':''}>ISO 690</option></select>`;
+  }
+  h+='<h3>🔒 Code PIN (facultatif)</h3>';
+  if(mode==='main'){
+    if(!on){
+      h+='<div class="note">Le code PIN protège l’accès à l’application. Il est désactivé : vous pouvez l’activer à tout moment.</div>'+
+        '<button class="btn pri" id="sOn" style="width:100%;margin-top:12px">Activer le code PIN</button>';
+    }else{
+      const opts=[[0,'Dès que je quitte l’application'],[60,'Après 1 minute'],[300,'Après 5 minutes'],[900,'Après 15 minutes']];
+      h+='<div class="note">Le code PIN est activé.</div>'+
+        `<label>Verrouiller</label><select class="inp" id="sDelay">${opts.map(o=>`<option value="${o[0]}"${(settings.delay|0)===o[0]?' selected':''}>${o[1]}</option>`).join('')}</select>`+
+        `<label class="cbx"><input type="checkbox" id="sSec"${settings.secure?' checked':''}><span>Masquer l’aperçu dans les applications récentes (bloque aussi les captures d’écran)</span></label>`+
+        '<button class="btn" id="sChg" style="width:100%;margin-top:14px">Changer le code PIN</button>'+
+        '<button class="btn del" id="sOff" style="width:100%;margin-top:10px">Désactiver le code PIN</button>';
+    }
+    h+='<div class="row"><button class="btn pri" id="sClose">Fermer</button></div>';
+  }else{
+    if(mode==='change'||mode==='off')h+='<label>Code PIN actuel</label>'+pinInput('sCur');
+    if(mode==='set'||mode==='change'){
+      h+='<label>Nouveau code (4 à 8 chiffres)</label>'+pinInput('sNew')+'<label>Confirmer le nouveau code</label>'+pinInput('sNew2')+
+        '<div class="note">Attention : si vous oubliez ce code, il n’existe aucun moyen de le retrouver ; il faudrait effacer les données de l’application. Faites une sauvegarde complète avant d’activer le code.</div>';
+    }
+    h+=`<div class="row"><button class="btn" id="sBack">Annuler</button><button class="btn pri" id="sGo">${mode==='off'?'Désactiver':'Enregistrer'}</button></div>`;
+  }
+  $('#formSheet').innerHTML=h;
+  $('#formVeil').classList.add('on');
+  const el=id=>$('#'+id);
+  if(el('sRef'))el('sRef').onchange=()=>{settings.refStyle=el('sRef').value;saveSettings();};
+  if(el('sDelay'))el('sDelay').onchange=()=>{settings.delay=parseInt(el('sDelay').value,10)||0;saveSettings();};
+  if(el('sSec'))el('sSec').onchange=()=>{settings.secure=el('sSec').checked;saveSettings();};
+  if(el('sClose'))el('sClose').onclick=closeForm;
+  if(el('sOn'))el('sOn').onclick=()=>openSettings('set');
+  if(el('sChg'))el('sChg').onclick=()=>openSettings('change');
+  if(el('sOff'))el('sOff').onclick=()=>openSettings('off');
+  if(el('sBack'))el('sBack').onclick=()=>openSettings('main');
+  if(el('sGo'))el('sGo').onclick=()=>{
+    const val=id=>el(id)?el(id).value:'';
+    if(mode!=='set'&&hashPin(val('sCur'),settings.pin.salt)!==settings.pin.hash){toast('Code actuel incorrect.');return;}
+    if(mode==='off'){
+      settings.pin=null;settings.pinLen=0;saveSettings();
+      toast('Code PIN désactivé.');openSettings('main');return;
+    }
+    const a=val('sNew'),b=val('sNew2');
+    if(!/^\d{4,8}$/.test(a)){toast('Le code doit comporter 4 à 8 chiffres.');return;}
+    if(a!==b){toast('Les deux codes sont différents.');return;}
+    const salt=newSalt();
+    settings.pin={salt,hash:hashPin(a,salt)};settings.pinLen=a.length;saveSettings();
+    toast(mode==='set'?'Code PIN activé.':'Code PIN modifié.');
+    openSettings('main');
+  };
+}
+
+let failCount=0,lockUntil=0;
+function isLocked(){return !$('#lock').hidden;}
+function lockNow(){
+  if(!settings.pin)return;
+  $('#lock').hidden=false;
+  $('#menuVeil').classList.remove('on');
+  const i=$('#lockIn');
+  i.value='';
+  $('#lockMsg').textContent='Entrez votre code PIN';
+  setTimeout(()=>{try{i.focus();}catch(e){}},200);
+}
+window.lockNow=lockNow;
+function tryUnlock(){
+  if(!settings.pin){$('#lock').hidden=true;return;}
+  const i=$('#lockIn'),v=i.value;
+  if(!v)return;
+  const wait=Math.ceil((lockUntil-Date.now())/1000);
+  if(wait>0){i.value='';$('#lockMsg').textContent='Trop d’essais. Réessayez dans '+wait+' s.';return;}
+  if(hashPin(v,settings.pin.salt)===settings.pin.hash){
+    failCount=0;i.value='';i.blur();$('#lock').hidden=true;
+  }else{
+    failCount++;i.value='';
+    if(failCount%5===0){
+      const s=30*(failCount/5);
+      lockUntil=Date.now()+s*1000;
+      $('#lockMsg').textContent='Code incorrect. Patientez '+s+' s.';
+    }else $('#lockMsg').textContent='Code incorrect.';
+  }
+}
+$('#lockOk').onclick=tryUnlock;
+$('#lockIn').addEventListener('input',e=>{
+  const i=e.target;
+  i.value=i.value.replace(/\D/g,'');
+  if(settings.pinLen&&i.value.length>=settings.pinLen)tryUnlock();
+});
+$('#lockIn').addEventListener('keydown',e=>{if(e.key==='Enter')tryUnlock();});
+let hiddenAt=0;
+document.addEventListener('visibilitychange',()=>{   // navigateur (hors application Android) : verrouillage après absence
+  if(NATIVE||!settings.pin)return;
+  if(document.hidden)hiddenAt=Date.now();
+  else if(hiddenAt&&Date.now()-hiddenAt>=(settings.delay|0)*1000)lockNow();
+});
+$('#mBiblio').onclick=()=>{$('#menuVeil').classList.remove('on');exportBiblio();};
+$('#mSettings').onclick=()=>{$('#menuVeil').classList.remove('on');openSettings('main');};
+
+syncLock();
+if(settings.pin)lockNow();
 render();
 if(!NATIVE&&'serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(()=>{});}
 if(!NATIVE&&navigator.storage&&navigator.storage.persist){navigator.storage.persist().catch(()=>{});}

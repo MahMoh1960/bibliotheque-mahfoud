@@ -3,6 +3,7 @@ package com.mahfoud.bibliotheque;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
@@ -65,8 +66,17 @@ public class MainActivity extends Activity {
     private static final int REQ_SAVE = 4;
     private static final int REQ_READER = 5;
 
+    // État de verrouillage (code PIN) partagé avec le lecteur PDF.
+    static boolean pinOn = false;
+    static boolean secureOn = false;
+    static boolean forceLock = false;
+    static long lockDelayMs = 60000L;
+    static long readerLeftAt = 0L;
+
     private WebView web;
     private String pendingSaveText;
+    private boolean internal = false;   // true quand on part vers nos propres écrans ou le sélecteur de fichiers
+    private long leftAt = 0L;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -98,6 +108,29 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    protected void onStop() {
+        super.onStop();
+        if (!internal) {
+            leftAt = System.currentTimeMillis();
+        }
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        boolean lock = forceLock;
+        if (!internal && leftAt > 0 && System.currentTimeMillis() - leftAt >= lockDelayMs) {
+            lock = true;
+        }
+        internal = false;
+        leftAt = 0L;
+        forceLock = false;
+        if (pinOn && lock && web != null) {
+            js("window.lockNow&&window.lockNow()");
+        }
+    }
+
+    @Override
     public void onBackPressed() {
         web.evaluateJavascript("window.handleBack?window.handleBack():false", value -> {
             if (!"true".equals(value)) {
@@ -122,8 +155,10 @@ public class MainActivity extends Activity {
             if (page > 0) {
                 i.putExtra("page", page);
             }
+            internal = true;
             startActivityForResult(i, REQ_READER);
         } catch (Exception e) {
+            internal = false;
             toast("Impossible d'ouvrir le lecteur.");
         }
     }
@@ -245,11 +280,13 @@ public class MainActivity extends Activity {
                 js("window.onCsvPicked(" + JSONObject.quote(text) + ")");
 
             } else if (requestCode == REQ_READER) {
-                // retour du lecteur après un appui sur 📝 : la page ouvre une nouvelle note liée au livre
+                // retour du lecteur : la page mémorise la page lue (statut) et, après 📝, ouvre une note
                 String u = data.getStringExtra("uri");
                 int page = data.getIntExtra("page", 0);
+                int total = data.getIntExtra("total", 0);
+                boolean note = data.getBooleanExtra("note", false);
                 if (u != null) {
-                    js("window.onNoteFromReader(" + JSONObject.quote(u) + "," + page + ")");
+                    js("window.onReadProgress(" + JSONObject.quote(u) + "," + page + "," + total + "," + note + ")");
                 }
             } else if (requestCode == REQ_SAVE) {
                 Uri dest = data.getData();
@@ -279,6 +316,7 @@ public class MainActivity extends Activity {
                 i.setType("application/pdf");
                 i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
                 i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+                internal = true;
                 startActivityForResult(i, REQ_FILES);
             });
         }
@@ -288,6 +326,7 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
                 i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+                internal = true;
                 startActivityForResult(i, REQ_FOLDER);
             });
         }
@@ -298,6 +337,7 @@ public class MainActivity extends Activity {
                 Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
                 i.addCategory(Intent.CATEGORY_OPENABLE);
                 i.setType("*/*");
+                internal = true;
                 startActivityForResult(i, REQ_CSV);
             });
         }
@@ -342,47 +382,92 @@ public class MainActivity extends Activity {
                 String low = name.toLowerCase();
                 i.setType(low.endsWith(".txt") ? "text/plain" : (low.endsWith(".json") ? "application/json" : "text/csv"));
                 i.putExtra(Intent.EXTRA_TITLE, name);
+                internal = true;
                 startActivityForResult(i, REQ_SAVE);
             });
         }
 
         @JavascriptInterface
         public void saveData(String json) {
-            try {
-                File tmp = new File(getFilesDir(), "data.json.tmp");
-                File dst = new File(getFilesDir(), "data.json");
-                try (FileOutputStream out = new FileOutputStream(tmp)) {
-                    out.write(json.getBytes(StandardCharsets.UTF_8));
-                }
-                if (!tmp.renameTo(dst)) {
-                    try (FileOutputStream out = new FileOutputStream(dst)) {
-                        out.write(json.getBytes(StandardCharsets.UTF_8));
-                    }
-                    tmp.delete();
-                }
-            } catch (Exception ignored) {
-            }
+            writeFile("data.json", json);
         }
 
         @JavascriptInterface
         public String loadData() {
-            try {
-                File f = new File(getFilesDir(), "data.json");
-                if (!f.exists()) {
-                    return "";
+            return readFile("data.json");
+        }
+
+        @JavascriptInterface
+        public void saveSettings(String json) {
+            writeFile("settings.json", json);
+        }
+
+        @JavascriptInterface
+        public String loadSettings() {
+            return readFile("settings.json");
+        }
+
+        /** Copie un texte (référence, citation) dans le presse-papiers. */
+        @JavascriptInterface
+        public void copyText(final String text) {
+            runOnUiThread(() -> {
+                ClipboardManager cm = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                if (cm != null) {
+                    cm.setPrimaryClip(ClipData.newPlainText("Bibliothèque", text));
                 }
-                try (FileInputStream in = new FileInputStream(f)) {
-                    ByteArrayOutputStream buf = new ByteArrayOutputStream();
-                    byte[] chunk = new byte[8192];
-                    int n;
-                    while ((n = in.read(chunk)) > 0) {
-                        buf.write(chunk, 0, n);
-                    }
-                    return new String(buf.toByteArray(), StandardCharsets.UTF_8);
+            });
+        }
+
+        /** Informe le système du réglage du code PIN : verrouillage automatique et masquage de l'aperçu. */
+        @JavascriptInterface
+        public void setLock(final boolean on, final int seconds, final boolean secure) {
+            pinOn = on;
+            secureOn = on && secure;
+            lockDelayMs = Math.max(0, seconds) * 1000L;
+            runOnUiThread(() -> {
+                if (secureOn) {
+                    getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+                } else {
+                    getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE);
                 }
-            } catch (Exception e) {
+            });
+        }
+    }
+
+    private void writeFile(String name, String text) {
+        try {
+            File tmp = new File(getFilesDir(), name + ".tmp");
+            File dst = new File(getFilesDir(), name);
+            try (FileOutputStream out = new FileOutputStream(tmp)) {
+                out.write(text.getBytes(StandardCharsets.UTF_8));
+            }
+            if (!tmp.renameTo(dst)) {
+                try (FileOutputStream out = new FileOutputStream(dst)) {
+                    out.write(text.getBytes(StandardCharsets.UTF_8));
+                }
+                tmp.delete();
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private String readFile(String name) {
+        try {
+            File f = new File(getFilesDir(), name);
+            if (!f.exists()) {
                 return "";
             }
+            try (FileInputStream in = new FileInputStream(f)) {
+                ByteArrayOutputStream buf = new ByteArrayOutputStream();
+                byte[] chunk = new byte[8192];
+                int n;
+                while ((n = in.read(chunk)) > 0) {
+                    buf.write(chunk, 0, n);
+                }
+                return new String(buf.toByteArray(), StandardCharsets.UTF_8);
+            }
+        } catch (Exception e) {
+            return "";
         }
     }
 
@@ -426,6 +511,7 @@ public class MainActivity extends Activity {
         private SharedPreferences prefs;
         private String prefKey;
         private String uriString;
+        private boolean resultSet = false;
 
         private int dp(int v) {
             return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
@@ -437,6 +523,10 @@ public class MainActivity extends Activity {
             getWindow().setStatusBarColor(0xFF121212);
             getWindow().setNavigationBarColor(0xFF121212);
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            if (MainActivity.pinOn && MainActivity.secureOn) {
+                getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+            }
+            MainActivity.readerLeftAt = 0L;
 
             final Uri uri = getIntent().getData();
             if (uri == null) {
@@ -631,8 +721,47 @@ public class MainActivity extends Activity {
             Intent r = new Intent();
             r.putExtra("uri", uriString);
             r.putExtra("page", page);
+            r.putExtra("total", pageCount);
+            r.putExtra("note", true);
             setResult(RESULT_OK, r);
+            resultSet = true;
             finish();
+        }
+
+        /** À la fermeture, transmet la page lue à la bibliothèque (statut de lecture). */
+        @Override
+        public void finish() {
+            if (!resultSet && adapter != null && uriString != null) {
+                Intent r = new Intent();
+                r.putExtra("uri", uriString);
+                r.putExtra("page", list.getFirstVisiblePosition() + 1);
+                r.putExtra("total", pageCount);
+                r.putExtra("note", false);
+                setResult(RESULT_OK, r);
+                resultSet = true;
+            }
+            super.finish();
+        }
+
+        @Override
+        protected void onStop() {
+            super.onStop();
+            if (!isFinishing()) {
+                MainActivity.readerLeftAt = System.currentTimeMillis();
+            }
+        }
+
+        @Override
+        protected void onStart() {
+            super.onStart();
+            long left = MainActivity.readerLeftAt;
+            MainActivity.readerLeftAt = 0L;
+            if (MainActivity.pinOn && left > 0
+                    && System.currentTimeMillis() - left >= MainActivity.lockDelayMs) {
+                // retour après le délai de verrouillage : on ferme le lecteur, la bibliothèque demandera le code
+                MainActivity.forceLock = true;
+                finish();
+            }
         }
 
         private void toggleDark() {
