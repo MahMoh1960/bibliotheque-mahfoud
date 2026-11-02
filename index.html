@@ -19,8 +19,10 @@ header{position:sticky;top:0;z-index:5;background:var(--bg);padding:12px 14px 8p
 .top{display:flex;align-items:center;justify-content:space-between;gap:8px}
 h1{font-size:19px;margin:0;color:var(--accent);font-weight:700}
 .iconbtn{background:var(--surface2);color:var(--text);border:1px solid var(--line);border-radius:12px;min-width:48px;height:48px;font-size:22px}
-.tabs{display:flex;gap:8px;margin:10px 0}
-.tab{flex:1;height:42px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:15px}
+html{color-scheme:dark}
+.tabs{display:flex;gap:8px;margin:10px 0;overflow-x:auto;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tab{flex:1 0 auto;padding:0 14px;white-space:nowrap;height:42px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:15px}
 .tab.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:700}
 .search{width:100%;height:46px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--text);padding:0 14px;font-size:16px}
 .count{color:var(--muted);font-size:14px;margin:6px 2px 0}
@@ -51,6 +53,14 @@ label{display:block;color:var(--muted);font-size:15px;margin:12px 0 4px}
 .file{color:var(--muted);font-size:14px;margin-top:6px;word-break:break-all;opacity:.85}
 .chip{margin:8px 0 0;height:42px;border-radius:21px;border:1px solid var(--accent);background:transparent;color:var(--accent);font-size:16px;padding:0 16px}
 .chip.on{background:var(--accent);color:var(--accent-ink);font-weight:700}
+.types{display:flex;gap:8px;overflow-x:auto;margin-top:8px;scrollbar-width:none}
+.types::-webkit-scrollbar{display:none}
+.types .chip{margin:0;flex:none;height:34px;font-size:14px;padding:0 12px;white-space:nowrap}
+.nt{color:var(--muted);font-size:13px;margin-top:4px;line-height:1.4}
+.tag{display:inline-block;border:1px solid var(--accent);color:var(--accent);border-radius:8px;font-size:12px;padding:0 7px;margin-inline-end:6px}
+.ex{color:var(--muted);font-size:14px;margin-top:6px;line-height:1.45;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-line}
+textarea.inp{height:auto;min-height:230px;padding:12px;line-height:1.5;resize:vertical;font-family:inherit;font-size:16px}
+select.inp{font-size:16px}
 .toast{position:fixed;left:50%;bottom:100px;transform:translateX(-50%);background:var(--surface2);color:var(--text);border:1px solid var(--line);padding:12px 16px;border-radius:12px;z-index:30;display:none;max-width:90%;text-align:center}
 </style>
 </head>
@@ -64,6 +74,7 @@ label{display:block;color:var(--muted);font-size:15px;margin:12px 0 4px}
   <input class="search" id="q" type="search" placeholder="Rechercher…" dir="auto" autocomplete="off">
   <div class="count" id="count"></div>
   <button class="chip" id="chk" hidden></button>
+  <div class="types" id="types" hidden></div>
 </header>
 <main id="list"></main>
 <button class="fab" id="add" aria-label="Ajouter">+</button>
@@ -76,10 +87,13 @@ label{display:block;color:var(--muted);font-size:15px;margin:12px 0 4px}
   <button id="mImport">⬆️ Importer un fichier CSV</button>
   <button id="mExport">⬇️ Exporter cette rubrique (CSV)</button>
   <button id="mTemplate">📄 Télécharger un modèle CSV</button>
+  <button id="mNotesTxt">📝 Exporter les notes (TXT)</button>
+  <button id="mBackup">💾 Sauvegarde complète (exporter)</button>
+  <button id="mRestore">♻️ Restaurer une sauvegarde</button>
   <button id="mClose">Fermer</button>
-  <div class="note">Pensez à exporter régulièrement : le fichier CSV est votre sauvegarde. Les données sont conservées uniquement sur ce téléphone.</div>
+  <div class="note">Faites une sauvegarde complète de temps en temps : elle contient vos livres, magazines, journaux et notes. Les données sont conservées uniquement sur ce téléphone.</div>
 </div></div>
-<input type="file" id="file" accept=".csv,.txt,text/csv,text/plain" hidden>
+<input type="file" id="file" accept=".csv,.txt,.json,text/csv,text/plain,application/json" hidden>
 <input type="file" id="pdfs" accept=".pdf,application/pdf" multiple hidden>
 <div class="toast" id="toast"></div>
 
@@ -103,11 +117,12 @@ const ALIASES={
 };
 const $=s=>document.querySelector(s);
 const NATIVE=(typeof Android!=='undefined');   // vrai dans l'application Android
-let cur='livres', editId=null, onlyCheck=false;
+const NOTE_TYPES=['Note','Résumé','Remarque','Citation','Idée'];
+let cur='livres', editId=null, onlyCheck=false, typeFilter='', bookFilter='', restoreMode=false;
 let data=load();
 
 function load(){
-  const base={livres:[],magazines:[],journaux:[]};
+  const base={livres:[],magazines:[],journaux:[],notes:[]};
   try{const d=JSON.parse(localStorage.getItem(KEY));if(d&&typeof d==='object')return Object.assign(base,d);}catch(e){}
   if(NATIVE){try{const d=JSON.parse(Android.loadData());if(d&&typeof d==='object')return Object.assign(base,d);}catch(e){}}
   return base;
@@ -134,12 +149,17 @@ function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
 
 function renderTabs(){
-  $('#tabs').innerHTML=Object.keys(SECTIONS).map(k=>
-    `<button class="tab ${k===cur?'on':''}" data-k="${k}">${SECTIONS[k].label}</button>`).join('');
-  document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{cur=b.dataset.k;$('#q').value='';onlyCheck=false;render();});
+  const keys=Object.keys(SECTIONS).concat('notes');
+  $('#tabs').innerHTML=keys.map(k=>
+    `<button class="tab ${k===cur?'on':''}" data-k="${k}">${k==='notes'?'📝 Notes':SECTIONS[k].label}</button>`).join('');
+  document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{cur=b.dataset.k;$('#q').value='';onlyCheck=false;typeFilter='';bookFilter='';render();});
+  const on=document.querySelector('.tab.on');
+  if(on&&on.scrollIntoView){try{on.scrollIntoView({inline:'center',block:'nearest'});}catch(e){}}
 }
 function render(){
   renderTabs();
+  $('#types').hidden=true;
+  if(cur==='notes'){renderNotes();return;}
   const sec=SECTIONS[cur];
   const q=norm($('#q').value);
   const all=data[cur];
@@ -173,15 +193,30 @@ function openForm(id){
   editId=id||null;
   const sec=SECTIONS[cur];
   const it=id?data[cur].find(x=>x.id===id):{};
+  const nCount=(cur==='livres'&&id)?data.notes.filter(n=>n.bookId===id).length:0;
+  const noteBtns=(cur==='livres'&&id)
+    ?'<button class="btn" id="fNote" style="width:100%;margin-top:10px">📝 Nouvelle note sur ce livre</button>'
+      +(nCount?`<button class="btn" id="fSee" style="width:100%;margin-top:10px">📚 Voir les notes (${nCount})</button>`:'')
+    :'';
   $('#formSheet').innerHTML=`<h2>${id?'Modifier':'Ajouter'} ${id?'':sec.single}</h2>`+
     sec.fields.map(f=>`<label>${f.l}${f.req?' *':''}</label><input class="inp" data-k="${f.k}" dir="auto" autocomplete="off" value="${esc(it[f.k]||'')}">`).join('')+
     (it.fichier?`<div class="note" dir="auto">📄 Fichier : ${esc(it.fichier)}${NATIVE?(it.uri?' · 🔗 relié':' · non relié (importez le dossier des PDF)'):''}</div>`:'')+
     (NATIVE&&it.uri?'<button class="btn" id="fExt" style="width:100%;margin-top:14px">📖 Ouvrir avec une autre application</button>':'')+
+    noteBtns+
     `<div class="row">${id?'<button class="btn del" id="fDel">Supprimer</button>':''}<button class="btn" id="fCancel">Annuler</button><button class="btn pri" id="fSave">Enregistrer</button></div>`;
   $('#formVeil').classList.add('on');
   $('#fCancel').onclick=closeForm;
   $('#fSave').onclick=submitForm;
   if($('#fExt'))$('#fExt').onclick=()=>Android.openPdfExternal(it.uri);
+  if($('#fNote'))$('#fNote').onclick=()=>{
+    const bid=editId;closeForm();
+    cur='notes';typeFilter='';bookFilter='';$('#q').value='';render();
+    openNoteForm(null,{bookId:bid});
+  };
+  if($('#fSee'))$('#fSee').onclick=()=>{
+    const bid=editId;closeForm();
+    cur='notes';typeFilter='';bookFilter=bid;$('#q').value='';render();
+  };
   if($('#fDel'))$('#fDel').onclick=()=>{
     // confirmation intégrée : la fenêtre confirm() du navigateur n'existe pas dans l'application Android
     const row=$('#formSheet .row');
@@ -206,6 +241,164 @@ function submitForm(){
     data[cur].push(Object.assign({id:uid()},rec));
   }
   if(save()){closeForm();render();toast('Enregistré.');}
+}
+
+/* ---------- Notes de lecture ---------- */
+function bookById(id){return id?data.livres.find(b=>b.id===id):null;}
+function fmtDate(ts){try{return ts?new Date(ts).toLocaleDateString('fr-FR'):'';}catch(e){return '';}}
+function noteTitle(n){
+  if(n.titre)return n.titre;
+  const first=(n.texte||'').split('\n').find(l=>l.trim())||'';
+  return first.length>60?first.slice(0,60)+'…':(first||'(sans titre)');
+}
+function pageLabel(p){return !p?'':(/^\d+$/.test(p)?'p. '+p:p);}
+function bookLabelOf(n){const b=bookById(n.bookId);return b?b.titre:(n.bookTitle||'');}
+
+function renderNotes(){
+  const q=norm($('#q').value);
+  const all=data.notes;
+  $('#chk').hidden=true;
+  const tp=$('#types');
+  tp.hidden=false;
+  const bf=bookById(bookFilter);
+  tp.innerHTML=(bf?`<button class="chip on" data-b="1">📖 ${esc(bf.titre)} ✕</button>`:'')+
+    ['Tous'].concat(NOTE_TYPES).map(t=>{const v=t==='Tous'?'':t;return `<button class="chip${typeFilter===v?' on':''}" data-t="${v}">${t}</button>`;}).join('');
+  tp.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{
+    if(b.dataset.b){bookFilter='';}else{typeFilter=b.dataset.t;}
+    renderNotes();
+  });
+  let items=all.slice().sort((a,b)=>(b.updated||0)-(a.updated||0));
+  if(typeFilter)items=items.filter(n=>n.type===typeFilter);
+  if(bookFilter)items=items.filter(n=>n.bookId===bookFilter);
+  if(q)items=items.filter(n=>{
+    const b=bookById(n.bookId);
+    return norm(n.titre).includes(q)||norm(n.texte).includes(q)||norm(n.type).includes(q)||norm(n.bookTitle).includes(q)||
+      (b&&(norm(b.titre).includes(q)||norm(b.auteur).includes(q)));
+  });
+  const filtered=q||typeFilter||bookFilter;
+  $('#count').textContent=filtered?`${items.length} note(s) sur ${all.length}`:`${all.length} note(s)`;
+  if(!items.length){
+    $('#list').innerHTML=`<div class="empty">${all.length?'Aucune note ne correspond.':'Aucune note pour le moment.<br>Touchez + pour écrire une note, un résumé ou une remarque.'+(NATIVE?'<br>Dans le lecteur PDF, le bouton 📝 crée une note liée à la page lue.':'')}</div>`;
+    return;
+  }
+  $('#list').innerHTML=items.map(n=>{
+    const meta=[bookLabelOf(n)?'📖 '+esc(bookLabelOf(n)):'',esc(pageLabel(n.page)),fmtDate(n.updated)].filter(Boolean).join(' · ');
+    return `<div class="card" data-id="${n.id}"><div class="cmain"><div class="t" dir="auto">${esc(noteTitle(n))}</div>`+
+      `<div class="nt" dir="auto"><span class="tag">${esc(n.type||'Note')}</span>${meta}</div>`+
+      (n.texte?`<div class="ex" dir="auto">${esc(n.texte)}</div>`:'')+`</div></div>`;
+  }).join('');
+  document.querySelectorAll('.card').forEach(c=>c.onclick=()=>openNoteForm(c.dataset.id));
+}
+
+function pageNumber(p){const m=String(p||'').match(/\d+/);return m?parseInt(m[0],10):0;}
+
+function openNoteForm(id,pre){
+  editId=id||null;
+  const n=id?data.notes.find(x=>x.id===id):Object.assign({type:'Note',bookId:'',page:'',titre:'',texte:''},pre||{});
+  if(!n){return;}
+  const books=data.livres.slice().sort((a,b)=>(a.titre||'').localeCompare(b.titre||'','fr',{numeric:true,sensitivity:'base'}));
+  const opts='<option value="">— Aucun livre —</option>'+books.map(b=>
+    `<option value="${b.id}"${b.id===n.bookId?' selected':''}>${esc(b.titre)}${b.auteur?' — '+esc(b.auteur):''}</option>`).join('');
+  $('#formSheet').innerHTML=`<h2>${id?'Modifier la note':'Nouvelle note'}</h2>`+
+    `<label>Type</label><select class="inp" id="nType">${NOTE_TYPES.map(t=>`<option${t===n.type?' selected':''}>${t}</option>`).join('')}</select>`+
+    `<label>Livre concerné</label><select class="inp" id="nBook">${opts}</select>`+
+    `<label>Page ou chapitre</label><input class="inp" id="nPage" dir="auto" autocomplete="off" value="${esc(n.page||'')}">`+
+    `<label>Titre (facultatif)</label><input class="inp" id="nTitre" dir="auto" autocomplete="off" value="${esc(n.titre||'')}">`+
+    `<label>Texte</label><textarea class="inp" id="nTexte" dir="auto">${esc(n.texte||'')}</textarea>`+
+    (id&&n.updated?`<div class="note">Modifiée le ${fmtDate(n.updated)} · créée le ${fmtDate(n.created)}</div>`:'')+
+    '<div id="nOpenBox"></div>'+
+    `<div class="row">${id?'<button class="btn del" id="fDel">Supprimer</button>':''}<button class="btn" id="fCancel">Annuler</button><button class="btn pri" id="fSave">Enregistrer</button></div>`;
+  $('#formVeil').classList.add('on');
+  $('#fCancel').onclick=closeForm;
+  $('#fSave').onclick=()=>submitNote();
+  const refreshOpen=()=>{
+    const b=bookById($('#nBook').value);
+    const box=$('#nOpenBox');
+    if(NATIVE&&b&&b.uri){
+      const pg=pageNumber($('#nPage').value);
+      box.innerHTML=`<button class="btn" id="nOpen" style="width:100%;margin-top:14px">📖 Ouvrir le livre${pg?' (page '+pg+')':''}</button>`;
+      $('#nOpen').onclick=()=>{
+        const rec=collectNote();
+        if(rec.titre||rec.texte.trim()){if(!submitNote())return;}else closeForm();   // la note en cours est enregistrée avant l'ouverture
+        Android.openPdfAt(b.uri,pg);
+      };
+    }else box.innerHTML='';
+  };
+  $('#nBook').onchange=refreshOpen;
+  $('#nPage').oninput=refreshOpen;
+  refreshOpen();
+  if($('#fDel'))$('#fDel').onclick=()=>{
+    const row=$('#formSheet .row');
+    row.innerHTML='<div class="ask">Supprimer définitivement cette note ?</div>'+
+      '<button class="btn" id="fNo">Non, garder</button><button class="btn del" id="fYes">Oui, supprimer</button>';
+    $('#fNo').onclick=()=>openNoteForm(editId);
+    $('#fYes').onclick=()=>{
+      data.notes=data.notes.filter(x=>x.id!==editId);
+      if(save()){closeForm();render();toast('Note supprimée.');}
+    };
+  };
+  if(!id){setTimeout(()=>{const t=$('#nTexte');if(t)t.focus();},150);}
+}
+function collectNote(){
+  const b=bookById($('#nBook').value);
+  return {type:$('#nType').value,bookId:$('#nBook').value,bookTitle:b?b.titre:'',page:$('#nPage').value.trim(),
+    titre:$('#nTitre').value.trim(),texte:$('#nTexte').value.replace(/\s+$/,'')};
+}
+function submitNote(){
+  const rec=collectNote();
+  if(!rec.titre&&!rec.texte.trim()){toast('Écrivez au moins un titre ou un texte.');return false;}
+  const now=Date.now();
+  if(editId){
+    const i=data.notes.findIndex(x=>x.id===editId);
+    if(i<0)return false;
+    data.notes[i]=Object.assign({},data.notes[i],rec,{updated:now});
+  }else{
+    data.notes.push(Object.assign({id:uid(),created:now,updated:now},rec));
+  }
+  if(!save())return false;
+  closeForm();render();toast('Note enregistrée.');
+  return true;
+}
+function exportNotesTxt(){
+  if(!data.notes.length){toast('Aucune note à exporter.');return;}
+  const groups=new Map();
+  data.notes.slice().sort((a,b)=>(a.created||0)-(b.created||0)).forEach(n=>{
+    const b=bookById(n.bookId);
+    const key=b?b.id:(n.bookTitle?'t:'+n.bookTitle:'');
+    if(!groups.has(key))groups.set(key,{book:b,title:b?b.titre:(n.bookTitle||''),notes:[]});
+    groups.get(key).notes.push(n);
+  });
+  const out=['BIBLIOTHÈQUE DE MAHFOUD — NOTES DE LECTURE','Exporté le '+fmtDate(Date.now()),''];
+  const sorted=Array.from(groups.values()).sort((a,b)=>(a.title?0:1)-(b.title?0:1)||(a.title||'').localeCompare(b.title||'','fr'));
+  for(const g of sorted){
+    const head=g.book?(g.title+(g.book.auteur?' — '+g.book.auteur:'')+(g.book.edition?' ('+g.book.edition+')':'')):(g.title||'Notes sans livre');
+    out.push('='.repeat(40),head,'='.repeat(40),'');
+    g.notes.forEach(n=>{
+      const meta=[n.type||'Note',pageLabel(n.page),fmtDate(n.updated)].filter(Boolean).join(' · ');
+      out.push('['+meta+']'+(n.titre?' '+n.titre:''),n.texte||'','');
+    });
+  }
+  download('notes-lecture.txt',out.join('\n'));
+  if(!NATIVE)toast('Fichier exporté.');
+}
+function exportBackup(){
+  download('sauvegarde-bibliotheque.json',JSON.stringify(data,null,1));
+  if(!NATIVE)toast('Sauvegarde exportée.');
+}
+function restoreBackup(text){
+  let b;
+  try{
+    if(text.charCodeAt(0)===0xFEFF)text=text.slice(1);
+    b=JSON.parse(text);
+  }catch(e){toast('Ce fichier n\'est pas une sauvegarde valide.');return;}
+  if(!b||typeof b!=='object'){toast('Ce fichier n\'est pas une sauvegarde valide.');return;}
+  let added=0;
+  for(const k of ['livres','magazines','journaux','notes']){
+    if(!Array.isArray(b[k]))continue;
+    const ids=new Set(data[k].map(x=>x.id));
+    b[k].forEach(x=>{if(x&&x.id&&!ids.has(x.id)){data[k].push(x);ids.add(x.id);added++;}});
+  }
+  if(save()){render();toast(added?`${added} élément(s) restauré(s).`:'Rien à restaurer : tout est déjà présent.');}
 }
 
 /* ---------- CSV ---------- */
@@ -268,11 +461,14 @@ function importRows(rows){
 function csvEscape(v){v=v==null?'':String(v);return /[;,"\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}
 function download(name,text){
   if(NATIVE){Android.saveText(name,'﻿'+text);return;}
-  const blob=new Blob(['﻿'+text],{type:'text/csv;charset=utf-8'});
+  const blob=new Blob(['﻿'+text],{type:mimeFor(name)+';charset=utf-8'});
   const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);a.download=name;
   document.body.appendChild(a);a.click();a.remove();
   setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+}
+function mimeFor(name){
+  return /\.txt$/i.test(name)?'text/plain':(/\.json$/i.test(name)?'application/json':'text/csv');
 }
 function exportCSV(){
   const sec=SECTIONS[cur];
@@ -349,12 +545,19 @@ window.onPdfsPicked=function(list){
   }
 };
 window.onCsvPicked=function(text){handleCsvText(text);};
+window.onNoteFromReader=function(uri,page){
+  // appelée quand on touche 📝 dans le lecteur PDF : nouvelle note liée au livre et à la page lue
+  const b=data.livres.find(x=>x.uri===uri);
+  cur='notes';typeFilter='';bookFilter='';$('#q').value='';render();
+  openNoteForm(null,{bookId:b?b.id:'',page:page?String(page):''});
+};
 window.handleBack=function(){
   if($('#formVeil').classList.contains('on')){closeForm();return true;}
   if($('#menuVeil').classList.contains('on')){$('#menuVeil').classList.remove('on');return true;}
   return false;
 };
 function handleCsvText(text){
+  if(restoreMode){restoreMode=false;restoreBackup(String(text));return;}
   try{
     const res=importRows(parseCSV(String(text)));
     if(save()){render();toast(`${res.added} ajouté(s), ${res.skipped} ignoré(s) (doublons ou sans titre).`);}
@@ -364,13 +567,26 @@ function handleCsvText(text){
 /* ---------- Menu & événements ---------- */
 if(NATIVE){$('#mFolder').hidden=false;}
 $('#mFolder').onclick=()=>{$('#menuVeil').classList.remove('on');Android.pickFolder();};
-$('#add').onclick=()=>openForm(null);
+$('#add').onclick=()=>{if(cur==='notes')openNoteForm(null,{bookId:bookFilter||''});else openForm(null);};
 $('#q').oninput=render;
 $('#menuBtn').onclick=()=>$('#menuVeil').classList.add('on');
 $('#mClose').onclick=()=>$('#menuVeil').classList.remove('on');
-$('#mExport').onclick=()=>{$('#menuVeil').classList.remove('on');exportCSV();};
-$('#mTemplate').onclick=()=>{$('#menuVeil').classList.remove('on');templateCSV();};
-$('#mImport').onclick=()=>{$('#menuVeil').classList.remove('on');if(NATIVE)Android.pickCsv();else $('#file').click();};
+const NOTES_MSG='Ce choix concerne Livres, Magazines et Journaux. Pour les notes : « Exporter les notes (TXT) » ou la sauvegarde complète.';
+$('#mExport').onclick=()=>{$('#menuVeil').classList.remove('on');if(cur==='notes'){toast(NOTES_MSG);return;}exportCSV();};
+$('#mTemplate').onclick=()=>{$('#menuVeil').classList.remove('on');if(cur==='notes'){toast(NOTES_MSG);return;}templateCSV();};
+$('#mImport').onclick=()=>{
+  $('#menuVeil').classList.remove('on');
+  if(cur==='notes'){toast(NOTES_MSG);return;}
+  restoreMode=false;
+  if(NATIVE)Android.pickCsv();else $('#file').click();
+};
+$('#mNotesTxt').onclick=()=>{$('#menuVeil').classList.remove('on');exportNotesTxt();};
+$('#mBackup').onclick=()=>{$('#menuVeil').classList.remove('on');exportBackup();};
+$('#mRestore').onclick=()=>{
+  $('#menuVeil').classList.remove('on');
+  restoreMode=true;
+  if(NATIVE)Android.pickCsv();else $('#file').click();
+};
 $('#mPdf').onclick=()=>{
   $('#menuVeil').classList.remove('on');
   if(cur!=='livres'){cur='livres';$('#q').value='';onlyCheck=false;render();}

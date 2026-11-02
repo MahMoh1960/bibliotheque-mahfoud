@@ -63,6 +63,7 @@ public class MainActivity extends Activity {
     private static final int REQ_FOLDER = 2;
     private static final int REQ_CSV = 3;
     private static final int REQ_SAVE = 4;
+    private static final int REQ_READER = 5;
 
     private WebView web;
     private String pendingSaveText;
@@ -111,6 +112,20 @@ public class MainActivity extends Activity {
 
     private void toast(final String msg) {
         runOnUiThread(() -> Toast.makeText(MainActivity.this, msg, Toast.LENGTH_LONG).show());
+    }
+
+    private void openReader(String uri, int page) {
+        try {
+            Intent i = new Intent(MainActivity.this, ReaderActivity.class);
+            i.setData(Uri.parse(uri));
+            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            if (page > 0) {
+                i.putExtra("page", page);
+            }
+            startActivityForResult(i, REQ_READER);
+        } catch (Exception e) {
+            toast("Impossible d'ouvrir le lecteur.");
+        }
     }
 
     private String displayName(Uri uri) {
@@ -229,6 +244,13 @@ public class MainActivity extends Activity {
                 String text = readText(data.getData());
                 js("window.onCsvPicked(" + JSONObject.quote(text) + ")");
 
+            } else if (requestCode == REQ_READER) {
+                // retour du lecteur après un appui sur 📝 : la page ouvre une nouvelle note liée au livre
+                String u = data.getStringExtra("uri");
+                int page = data.getIntExtra("page", 0);
+                if (u != null) {
+                    js("window.onNoteFromReader(" + JSONObject.quote(u) + "," + page + ")");
+                }
             } else if (requestCode == REQ_SAVE) {
                 Uri dest = data.getData();
                 if (dest != null && pendingSaveText != null) {
@@ -284,15 +306,14 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void openPdf(final String uri) {
             runOnUiThread(() -> {
-                try {
-                    Intent i = new Intent(MainActivity.this, ReaderActivity.class);
-                    i.setData(Uri.parse(uri));
-                    i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                    startActivity(i);
-                } catch (Exception e) {
-                    toast("Impossible d'ouvrir le lecteur.");
-                }
+                openReader(uri, 0);
             });
+        }
+
+        /** Ouvre le PDF dans le lecteur intégré, directement à la page indiquée (1 = première page). */
+        @JavascriptInterface
+        public void openPdfAt(final String uri, final int page) {
+            runOnUiThread(() -> openReader(uri, page));
         }
 
         /** Ouvre le PDF avec une autre application installée sur le téléphone. */
@@ -318,7 +339,8 @@ public class MainActivity extends Activity {
                 pendingSaveText = text;
                 Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
                 i.addCategory(Intent.CATEGORY_OPENABLE);
-                i.setType("text/csv");
+                String low = name.toLowerCase();
+                i.setType(low.endsWith(".txt") ? "text/plain" : (low.endsWith(".json") ? "application/json" : "text/csv"));
                 i.putExtra(Intent.EXTRA_TITLE, name);
                 startActivityForResult(i, REQ_SAVE);
             });
@@ -403,6 +425,7 @@ public class MainActivity extends Activity {
         private final HashSet<Integer> pending = new HashSet<>();
         private SharedPreferences prefs;
         private String prefKey;
+        private String uriString;
 
         private int dp(int v) {
             return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
@@ -420,6 +443,7 @@ public class MainActivity extends Activity {
                 finish();
                 return;
             }
+            uriString = uri.toString();
             prefs = getSharedPreferences("lecteur", MODE_PRIVATE);
             dark = prefs.getBoolean("dark", true);
             prefKey = "page_" + uri.toString().hashCode();
@@ -502,6 +526,7 @@ public class MainActivity extends Activity {
             indicator.setOnClickListener(v -> askPage());
             bar.addView(indicator, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
+            bar.addView(barButton("📝", v -> noteAndExit()));
             bar.addView(barButton("−", v -> zoom(-1)));
             bar.addView(barButton("+", v -> zoom(1)));
             darkBtn = barButton("◐", v -> toggleDark());
@@ -558,6 +583,10 @@ public class MainActivity extends Activity {
                 }
             });
             int saved = prefs.getInt(prefKey, 0);
+            int wanted = getIntent().getIntExtra("page", 0);
+            if (wanted > 0) {
+                saved = wanted - 1;
+            }
             if (saved < 0 || saved >= pageCount) {
                 saved = 0;
             }
@@ -590,6 +619,20 @@ public class MainActivity extends Activity {
             int first = list.getFirstVisiblePosition();
             resetRendering();
             list.setSelection(first);
+        }
+
+        /** Revient à la bibliothèque avec une nouvelle note liée à ce livre et à la page affichée. */
+        private void noteAndExit() {
+            if (adapter == null) {
+                return;
+            }
+            int page = list.getFirstVisiblePosition() + 1;
+            prefs.edit().putInt(prefKey, page - 1).apply();
+            Intent r = new Intent();
+            r.putExtra("uri", uriString);
+            r.putExtra("page", page);
+            setResult(RESULT_OK, r);
+            finish();
         }
 
         private void toggleDark() {
