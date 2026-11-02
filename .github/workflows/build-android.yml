@@ -31,6 +31,9 @@ jobs:
           cp MainActivity.java app/src/main/java/com/mahfoud/bibliotheque/MainActivity.java
           cp AndroidManifest.xml app/src/main/AndroidManifest.xml
           cp index.html app/src/main/assets/index.html
+          cp viewer.html app/src/main/assets/viewer.html
+          cp jszip.min.js app/src/main/assets/jszip.min.js
+          cp docx-preview.min.js app/src/main/assets/docx-preview.min.js
           cp ic_launcher.xml app/src/main/res/drawable/ic_launcher.xml
           cp app-build.gradle app/build.gradle
           cp bibliotheque.jks app/bibliotheque.jks
