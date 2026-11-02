@@ -12,6 +12,7 @@ import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -163,8 +164,13 @@ public class MainActivity extends Activity {
                 openExternal(uri);   // formats que le lecteur intégré ne sait pas lire
                 return;
             }
-            boolean text = nm.endsWith(".docx") || nm.endsWith(".txt") || nm.endsWith(".md");
-            Intent i = new Intent(MainActivity.this, text ? TextReaderActivity.class : ReaderActivity.class);
+            Class<?> target = ReaderActivity.class;
+            if (nm.endsWith(".docx")) {
+                target = DocxActivity.class;
+            } else if (nm.endsWith(".txt") || nm.endsWith(".md")) {
+                target = TextReaderActivity.class;
+            }
+            Intent i = new Intent(MainActivity.this, target);
             i.setData(Uri.parse(uri));
             i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             if (page > 0) {
@@ -1403,6 +1409,308 @@ public class MainActivity extends Activity {
                     && System.currentTimeMillis() - left >= MainActivity.lockDelayMs) {
                 MainActivity.forceLock = true;
                 finish();
+            }
+        }
+    }
+
+    /**
+     * Lecteur Word (.docx) fidèle : une page locale (viewer.html + docx-preview) affiche le document
+     * avec ses tableaux, images et styles, sans Internet. En cas d'échec, le lecteur de texte prend le relais.
+     */
+    public static class DocxActivity extends Activity {
+
+        private static final String HOST = "appassets.local";
+
+        private WebView wv;
+        private TextView indicator;
+        private Uri docUri;
+        private String uriString;
+        private SharedPreferences prefs;
+        private String prefKey;
+        private boolean dark = true;
+        private volatile int page = 1;
+        private volatile int total = 0;
+        private boolean ready = false;
+        private boolean resultSet = false;
+        private boolean child = false;
+
+        private int dp(int v) {
+            return (int) (v * getResources().getDisplayMetrics().density + 0.5f);
+        }
+
+        @Override
+        protected void onCreate(Bundle savedInstanceState) {
+            super.onCreate(savedInstanceState);
+            getWindow().setStatusBarColor(0xFF121212);
+            getWindow().setNavigationBarColor(0xFF121212);
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            if (MainActivity.pinOn && MainActivity.secureOn) {
+                getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+            }
+            MainActivity.readerLeftAt = 0L;
+
+            docUri = getIntent().getData();
+            if (docUri == null) {
+                finish();
+                return;
+            }
+            uriString = docUri.toString();
+            prefs = getSharedPreferences("lecteur", MODE_PRIVATE);
+            dark = prefs.getBoolean("dark", true);
+            prefKey = "page_" + uriString.hashCode();
+
+            LinearLayout root = new LinearLayout(this);
+            root.setOrientation(LinearLayout.VERTICAL);
+            LinearLayout bar = new LinearLayout(this);
+            bar.setOrientation(LinearLayout.HORIZONTAL);
+            bar.setGravity(Gravity.CENTER_VERTICAL);
+            bar.setBackgroundColor(0xFF1E1E1E);
+            bar.setPadding(dp(8), dp(2), dp(8), dp(2));
+
+            indicator = new TextView(this);
+            indicator.setText("Ouverture…");
+            indicator.setTextColor(0xFFF4A259);
+            indicator.setTextSize(18);
+            indicator.setPadding(dp(8), dp(10), dp(8), dp(10));
+            indicator.setOnClickListener(v -> askPage());
+            bar.addView(indicator, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            bar.addView(barButton("📝", v -> noteAndExit()));
+            bar.addView(barButton("−", v -> runJs("zoomBy(-1)")));
+            bar.addView(barButton("+", v -> runJs("zoomBy(1)")));
+            bar.addView(barButton("◐", v -> toggleDark()));
+            root.addView(bar, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+            wv = new WebView(this);
+            wv.setBackgroundColor(0xFF121212);
+            root.addView(wv, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+            setContentView(root);
+
+            WebSettings s = wv.getSettings();
+            s.setJavaScriptEnabled(true);
+            s.setAllowFileAccess(false);
+            s.setAllowContentAccess(false);
+            wv.addJavascriptInterface(new ViewerBridge(), "Viewer");
+            wv.setWebViewClient(new WebViewClient() {
+                @Override
+                public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                    return serve(request);
+                }
+
+                @Override
+                public void onReceivedError(WebView view, WebResourceRequest request, android.webkit.WebResourceError error) {
+                    if (request.isForMainFrame()) {
+                        fallbackToText();
+                    }
+                }
+
+                @Override
+                public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse resp) {
+                    if (request.isForMainFrame()) {
+                        fallbackToText();
+                    }
+                }
+            });
+            wv.loadUrl("https://" + HOST + "/viewer.html");
+        }
+
+        private WebResourceResponse notFound() {
+            return new WebResourceResponse("text/plain", "utf-8", 404, "Not found",
+                    new java.util.HashMap<String, String>(), new ByteArrayInputStream(new byte[0]));
+        }
+
+        private WebResourceResponse serve(WebResourceRequest request) {
+            try {
+                Uri u = request.getUrl();
+                if (!HOST.equals(u.getHost())) {
+                    return notFound();   // aucun accès réseau
+                }
+                String path = u.getPath();
+                if ("/doc".equals(path)) {
+                    InputStream in = getContentResolver().openInputStream(docUri);
+                    if (in == null) {
+                        return notFound();
+                    }
+                    return new WebResourceResponse("application/octet-stream", null, in);
+                }
+                if ("/viewer.html".equals(path)) {
+                    return new WebResourceResponse("text/html", "utf-8", getAssets().open("viewer.html"));
+                }
+                if ("/jszip.min.js".equals(path)) {
+                    return new WebResourceResponse("application/javascript", "utf-8", getAssets().open("jszip.min.js"));
+                }
+                if ("/docx-preview.min.js".equals(path)) {
+                    return new WebResourceResponse("application/javascript", "utf-8", getAssets().open("docx-preview.min.js"));
+                }
+            } catch (Exception ignored) {
+            }
+            return notFound();
+        }
+
+        private class ViewerBridge {
+            @JavascriptInterface
+            public void ready() {
+                runOnUiThread(() -> {
+                    ready = true;
+                    int start = prefs.getInt(prefKey, 1);
+                    int wanted = getIntent().getIntExtra("page", 0);
+                    if (wanted > 0) {
+                        start = wanted;
+                    }
+                    runJs("setDark(" + dark + ");goPage(" + Math.max(1, start) + ")");
+                });
+            }
+
+            @JavascriptInterface
+            public void progress(final int p, final int t) {
+                page = p;
+                total = t;
+                runOnUiThread(() -> indicator.setText(p + " / " + t));
+            }
+
+            @JavascriptInterface
+            public void failed(final String msg) {
+                runOnUiThread(() -> fallbackToText());
+            }
+        }
+
+        private void fallbackToText() {
+            if (child || isFinishing()) {
+                return;
+            }
+            child = true;
+            try {
+                Intent i = new Intent(this, TextReaderActivity.class);
+                i.setData(docUri);
+                i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                int wanted = getIntent().getIntExtra("page", 0);
+                if (wanted > 0) {
+                    i.putExtra("page", wanted);
+                }
+                Toast.makeText(this, "Affichage simplifié (texte seul).", Toast.LENGTH_LONG).show();
+                startActivityForResult(i, 1);
+            } catch (Exception e) {
+                finish();
+            }
+        }
+
+        @Override
+        protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+            super.onActivityResult(requestCode, resultCode, data);
+            if (data != null) {
+                setResult(resultCode, data);
+                resultSet = true;
+            }
+            finish();
+        }
+
+        private void runJs(String code) {
+            if (wv != null) {
+                wv.evaluateJavascript(code, null);
+            }
+        }
+
+        private TextView barButton(String text, View.OnClickListener l) {
+            TextView b = new TextView(this);
+            b.setText(text);
+            b.setTextSize(24);
+            b.setTextColor(0xFFE8E4DC);
+            b.setGravity(Gravity.CENTER);
+            b.setMinWidth(dp(52));
+            b.setMinHeight(dp(48));
+            b.setOnClickListener(l);
+            return b;
+        }
+
+        private void toggleDark() {
+            dark = !dark;
+            prefs.edit().putBoolean("dark", dark).apply();
+            runJs("setDark(" + dark + ")");
+        }
+
+        private void askPage() {
+            if (!ready) {
+                return;
+            }
+            final EditText et = new EditText(this);
+            et.setInputType(InputType.TYPE_CLASS_NUMBER);
+            et.setHint("1 – " + total);
+            new AlertDialog.Builder(this)
+                    .setTitle("Aller à la page")
+                    .setView(et)
+                    .setPositiveButton("OK", (d, w) -> {
+                        try {
+                            int n = Integer.parseInt(et.getText().toString().trim());
+                            runJs("goPage(" + n + ")");
+                        } catch (Exception ignored) {
+                        }
+                    })
+                    .setNegativeButton("Annuler", null)
+                    .show();
+        }
+
+        private void noteAndExit() {
+            if (!ready) {
+                return;
+            }
+            prefs.edit().putInt(prefKey, page).apply();
+            Intent r = new Intent();
+            r.putExtra("uri", uriString);
+            r.putExtra("page", page);
+            r.putExtra("total", total);
+            r.putExtra("note", true);
+            setResult(RESULT_OK, r);
+            resultSet = true;
+            finish();
+        }
+
+        @Override
+        public void finish() {
+            if (!resultSet && ready && uriString != null) {
+                Intent r = new Intent();
+                r.putExtra("uri", uriString);
+                r.putExtra("page", page);
+                r.putExtra("total", total);
+                r.putExtra("note", false);
+                setResult(RESULT_OK, r);
+                resultSet = true;
+            }
+            super.finish();
+        }
+
+        @Override
+        protected void onPause() {
+            super.onPause();
+            if (ready && prefs != null) {
+                prefs.edit().putInt(prefKey, page).apply();
+            }
+        }
+
+        @Override
+        protected void onStop() {
+            super.onStop();
+            if (!isFinishing() && !child) {
+                MainActivity.readerLeftAt = System.currentTimeMillis();
+            }
+        }
+
+        @Override
+        protected void onStart() {
+            super.onStart();
+            long left = MainActivity.readerLeftAt;
+            MainActivity.readerLeftAt = 0L;
+            if (MainActivity.pinOn && left > 0 && !child
+                    && System.currentTimeMillis() - left >= MainActivity.lockDelayMs) {
+                MainActivity.forceLock = true;
+                finish();
+            }
+        }
+
+        @Override
+        protected void onDestroy() {
+            super.onDestroy();
+            if (wv != null) {
+                wv.destroy();
             }
         }
     }
