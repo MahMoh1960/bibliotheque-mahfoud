@@ -25,7 +25,10 @@ h1{font-size:21px;margin:0;color:var(--accent);font-weight:700}
 .search{width:100%;height:50px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--text);padding:0 14px;font-size:18px}
 .count{color:var(--muted);font-size:15px;margin:8px 2px 0}
 main{padding:10px 14px}
-.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px;display:flex;gap:10px;align-items:flex-start}
+.cmain{flex:1;min-width:0}
+.edit{flex:none;width:46px;height:46px;border-radius:12px;border:1px solid var(--line);background:var(--surface2);color:var(--text);font-size:20px}
+.badge.ok{background:#16301f;color:#8fd19e;border-color:#3d7a4d;margin-inline-end:6px}
 .card:active{background:var(--surface2)}
 .t{font-size:19px;font-weight:600;line-height:1.35}
 .s{color:var(--muted);font-size:16px;margin-top:4px;line-height:1.4}
@@ -67,6 +70,7 @@ label{display:block;color:var(--muted);font-size:15px;margin:12px 0 4px}
 <div class="veil" id="formVeil"><div class="sheet" id="formSheet"></div></div>
 <div class="veil" id="menuVeil"><div class="sheet menu" id="menuSheet">
   <h2>Menu</h2>
+  <button id="mFolder" hidden>📁 Importer un dossier de PDF</button>
   <button id="mPdf">📕 Importer des PDF (Livres)</button>
   <button id="mImport">⬆️ Importer un fichier CSV</button>
   <button id="mExport">⬇️ Exporter cette rubrique (CSV)</button>
@@ -97,17 +101,23 @@ const ALIASES={
   fichier:['fichier','nom du fichier','file','filename']
 };
 const $=s=>document.querySelector(s);
+const NATIVE=(typeof Android!=='undefined');   // vrai dans l'application Android
 let cur='livres', editId=null, onlyCheck=false;
 let data=load();
 
 function load(){
   const base={livres:[],magazines:[],journaux:[]};
   try{const d=JSON.parse(localStorage.getItem(KEY));if(d&&typeof d==='object')return Object.assign(base,d);}catch(e){}
+  if(NATIVE){try{const d=JSON.parse(Android.loadData());if(d&&typeof d==='object')return Object.assign(base,d);}catch(e){}}
   return base;
 }
 function save(){
-  try{localStorage.setItem(KEY,JSON.stringify(data));return true;}
-  catch(e){toast('Enregistrement impossible : espace insuffisant.');return false;}
+  const s=JSON.stringify(data);
+  let ok=true;
+  try{localStorage.setItem(KEY,s);}catch(e){ok=false;}
+  if(NATIVE){try{Android.saveData(s);ok=true;}catch(e){}}   // copie de secours dans un fichier de l'application
+  if(!ok)toast('Enregistrement impossible : espace insuffisant.');
+  return ok;
 }
 function norm(s){
   return (s==null?'':String(s)).normalize('NFD')
@@ -148,9 +158,14 @@ function render(){
   }
   $('#list').innerHTML=items.map(it=>{
     const sub=sec.fields.slice(1).map(f=>it[f.k]?`${f.l} : ${esc(it[f.k])}`:'').filter(Boolean).join(' · ');
-    return `<div class="card" data-id="${it.id}"><div class="t" dir="auto">${esc(it.titre)}</div>${sub?`<div class="s" dir="auto">${sub}</div>`:''}${it.fichier?`<div class="file" dir="auto">📄 ${esc(it.fichier)}</div>`:''}${it.verif?'<span class="badge">⚠ À vérifier</span>':''}</div>`;
+    const linked=NATIVE&&it.uri;
+    return `<div class="card" data-id="${it.id}"><div class="cmain"><div class="t" dir="auto">${esc(it.titre)}</div>${sub?`<div class="s" dir="auto">${sub}</div>`:''}${it.fichier?`<div class="file" dir="auto">📄 ${esc(it.fichier)}</div>`:''}${linked?'<span class="badge ok">📖 Toucher pour ouvrir</span>':''}${it.verif?'<span class="badge">⚠ À vérifier</span>':''}</div><button class="edit" data-edit="${it.id}" aria-label="Modifier">✏️</button></div>`;
   }).join('');
-  document.querySelectorAll('.card').forEach(c=>c.onclick=()=>openForm(c.dataset.id));
+  document.querySelectorAll('.card').forEach(c=>c.onclick=()=>{
+    const it=data[cur].find(x=>x.id===c.dataset.id);
+    if(NATIVE&&it&&it.uri)Android.openPdf(it.uri);else openForm(c.dataset.id);
+  });
+  document.querySelectorAll('.edit').forEach(b=>b.onclick=e=>{e.stopPropagation();openForm(b.dataset.edit);});
 }
 
 function openForm(id){
@@ -159,7 +174,7 @@ function openForm(id){
   const it=id?data[cur].find(x=>x.id===id):{};
   $('#formSheet').innerHTML=`<h2>${id?'Modifier':'Ajouter'} ${id?'':sec.single}</h2>`+
     sec.fields.map(f=>`<label>${f.l}${f.req?' *':''}</label><input class="inp" data-k="${f.k}" dir="auto" autocomplete="off" value="${esc(it[f.k]||'')}">`).join('')+
-    (it.fichier?`<div class="note" dir="auto">📄 Fichier : ${esc(it.fichier)}</div>`:'')+
+    (it.fichier?`<div class="note" dir="auto">📄 Fichier : ${esc(it.fichier)}${NATIVE?(it.uri?' · 🔗 relié':' · non relié (importez le dossier des PDF)'):''}</div>`:'')+
     `<div class="row">${id?'<button class="btn del" id="fDel">Supprimer</button>':''}<button class="btn" id="fCancel">Annuler</button><button class="btn pri" id="fSave">Enregistrer</button></div>`;
   $('#formVeil').classList.add('on');
   $('#fCancel').onclick=closeForm;
@@ -244,6 +259,7 @@ function importRows(rows){
 }
 function csvEscape(v){v=v==null?'':String(v);return /[;,"\n\r]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}
 function download(name,text){
+  if(NATIVE){Android.saveText(name,'﻿'+text);return;}
   const blob=new Blob(['﻿'+text],{type:'text/csv;charset=utf-8'});
   const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);a.download=name;
@@ -257,7 +273,7 @@ function exportCSV(){
   const lines=[labels.join(';')];
   data[cur].forEach(it=>lines.push(keys.map(k=>csvEscape(it[k])).join(';')));
   download(`${cur}.csv`,lines.join('\r\n'));
-  toast('Fichier exporté.');
+  if(!NATIVE)toast('Fichier exporté.');
 }
 function templateCSV(){
   const sec=SECTIONS[cur];
@@ -293,18 +309,64 @@ function importPdfs(files){
   return {added,skipped,doubtful};
 }
 
+/* ---------- Import natif : fichiers ou dossier de PDF reliés ---------- */
+function linkOrAddPdfs(list){
+  let added=0,linked=0,skipped=0,doubtful=0;
+  const byName=new Map();
+  data.livres.forEach(it=>{if(it.fichier&&!byName.has(it.fichier))byName.set(it.fichier,it);});
+  const uris=new Set(data.livres.map(it=>it.uri).filter(Boolean));
+  for(const f of list){
+    if(!f||!f.name||!f.uri)continue;
+    if(uris.has(f.uri)){skipped++;continue;}
+    const ex=byName.get(f.name);
+    if(ex){
+      if(!ex.uri){ex.uri=f.uri;uris.add(f.uri);linked++;}else skipped++;
+      continue;
+    }
+    const titre=cleanTitle(f.name.replace(/\.pdf$/i,''));
+    if(!titre){skipped++;continue;}
+    const verif=looksDoubtful(titre);
+    if(verif)doubtful++;
+    const it={id:uid(),titre,auteur:'',edition:'',fichier:f.name,uri:f.uri,verif};
+    data.livres.push(it);byName.set(f.name,it);uris.add(f.uri);
+    added++;
+  }
+  return {added,linked,skipped,doubtful};
+}
+window.onPdfsPicked=function(list){
+  const res=linkOrAddPdfs(list||[]);
+  if(save()){
+    cur='livres';render();
+    toast(`${res.added} ajouté(s), ${res.linked} relié(s) à une fiche existante, ${res.skipped} déjà présent(s).`+(res.doubtful?` ${res.doubtful} à vérifier.`:''));
+  }
+};
+window.onCsvPicked=function(text){handleCsvText(text);};
+window.handleBack=function(){
+  if($('#formVeil').classList.contains('on')){closeForm();return true;}
+  if($('#menuVeil').classList.contains('on')){$('#menuVeil').classList.remove('on');return true;}
+  return false;
+};
+function handleCsvText(text){
+  try{
+    const res=importRows(parseCSV(String(text)));
+    if(save()){render();toast(`${res.added} ajouté(s), ${res.skipped} ignoré(s) (doublons ou sans titre).`);}
+  }catch(err){toast('Fichier illisible.');}
+}
+
 /* ---------- Menu & événements ---------- */
+if(NATIVE){$('#mFolder').hidden=false;}
+$('#mFolder').onclick=()=>{$('#menuVeil').classList.remove('on');Android.pickFolder();};
 $('#add').onclick=()=>openForm(null);
 $('#q').oninput=render;
 $('#menuBtn').onclick=()=>$('#menuVeil').classList.add('on');
 $('#mClose').onclick=()=>$('#menuVeil').classList.remove('on');
 $('#mExport').onclick=()=>{$('#menuVeil').classList.remove('on');exportCSV();};
 $('#mTemplate').onclick=()=>{$('#menuVeil').classList.remove('on');templateCSV();};
-$('#mImport').onclick=()=>{$('#menuVeil').classList.remove('on');$('#file').click();};
+$('#mImport').onclick=()=>{$('#menuVeil').classList.remove('on');if(NATIVE)Android.pickCsv();else $('#file').click();};
 $('#mPdf').onclick=()=>{
   $('#menuVeil').classList.remove('on');
   if(cur!=='livres'){cur='livres';$('#q').value='';onlyCheck=false;render();}
-  $('#pdfs').click();
+  if(NATIVE)Android.pickFiles();else $('#pdfs').click();
 };
 $('#chk').onclick=()=>{onlyCheck=!onlyCheck;render();};
 $('#pdfs').onchange=e=>{
@@ -321,10 +383,7 @@ $('#file').onchange=e=>{
   const f=e.target.files[0];if(!f)return;
   const rd=new FileReader();
   rd.onload=()=>{
-    try{
-      const res=importRows(parseCSV(String(rd.result)));
-      if(save()){render();toast(`${res.added} ajouté(s), ${res.skipped} ignoré(s) (doublons ou sans titre).`);}
-    }catch(err){toast('Fichier illisible.');}
+    handleCsvText(rd.result);
     e.target.value='';
   };
   rd.readAsText(f,'utf-8');
@@ -334,8 +393,8 @@ $('#file').onchange=e=>{
 });
 
 render();
-if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(()=>{});}
-if(navigator.storage&&navigator.storage.persist){navigator.storage.persist().catch(()=>{});}
+if(!NATIVE&&'serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(()=>{});}
+if(!NATIVE&&navigator.storage&&navigator.storage.persist){navigator.storage.persist().catch(()=>{});}
 </script>
 </body>
 </html>

@@ -1,0 +1,40 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.mahfoud.bibliotheque'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.mahfoud.bibliotheque'
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName '1.0'
+    }
+
+    signingConfigs {
+        perso {
+            storeFile file('bibliotheque.jks')
+            storePassword 'eFsL7ST3KNzaQt7r0VPn'
+            keyAlias 'bibliotheque'
+            keyPassword 'eFsL7ST3KNzaQt7r0VPn'
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.perso
+        }
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.perso
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
