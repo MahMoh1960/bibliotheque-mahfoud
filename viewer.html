@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=0.2, maximum-scale=8, user-scalable=yes">
 <title>Lecteur Word</title>
 <style>
 html,body{margin:0;background:#121212;color:#e8e4dc;font-family:system-ui,sans-serif}
@@ -20,7 +20,7 @@ body:not(.light) #c section.docx{filter:invert(.9) hue-rotate(180deg)}
 <script src="jszip.min.js"></script>
 <script src="docx-preview.min.js"></script>
 <script>
-var scale0=1, zi=1, ZS=[1,1.3,1.7,2.3], tick=false;
+var scale0=1, zi=4, ZS=[0.4,0.55,0.75,1,1.3,1.7,2.3], tick=false;
 function fail(e){ try{Viewer.failed(String(e));}catch(x){} }
 function pages(){ return document.querySelectorAll('#c section.docx'); }
 function applyZoom(){
@@ -48,7 +48,8 @@ else{
     var p=pages();
     if(!p.length)throw new Error('document vide');
     var w=0; p.forEach(function(s){ w=Math.max(w,s.offsetWidth); });
-    scale0=Math.min(1,window.innerWidth/(w+4));
+    var vw=Math.min(window.innerWidth||9999,document.documentElement.clientWidth||9999,(window.screen&&screen.width)||9999);
+    scale0=Math.min(1,vw/(w+4));
     document.getElementById('msg').style.display='none';
     applyZoom();
     try{Viewer.ready();}catch(x){}

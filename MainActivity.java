@@ -1490,6 +1490,9 @@ public class MainActivity extends Activity {
             s.setJavaScriptEnabled(true);
             s.setAllowFileAccess(false);
             s.setAllowContentAccess(false);
+            s.setSupportZoom(true);
+            s.setBuiltInZoomControls(true);
+            s.setDisplayZoomControls(false);
             wv.addJavascriptInterface(new ViewerBridge(), "Viewer");
             wv.setWebViewClient(new WebViewClient() {
                 @Override
