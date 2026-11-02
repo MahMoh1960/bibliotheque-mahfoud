@@ -40,7 +40,8 @@ main{padding:10px 14px}
 .sheet h2{margin:0 0 12px;font-size:20px;color:var(--accent)}
 label{display:block;color:var(--muted);font-size:15px;margin:12px 0 4px}
 .inp{width:100%;height:50px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--text);padding:0 12px;font-size:18px}
-.row{display:flex;gap:10px;margin-top:18px}
+.row{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
+.ask{width:100%;color:var(--danger);font-size:18px;font-weight:600}
 .btn{flex:1;height:52px;border-radius:12px;border:1px solid var(--line);background:var(--surface2);color:var(--text);font-size:18px}
 .btn.pri{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:700}
 .btn.del{color:var(--danger);border-color:var(--danger);background:transparent}
@@ -175,15 +176,22 @@ function openForm(id){
   $('#formSheet').innerHTML=`<h2>${id?'Modifier':'Ajouter'} ${id?'':sec.single}</h2>`+
     sec.fields.map(f=>`<label>${f.l}${f.req?' *':''}</label><input class="inp" data-k="${f.k}" dir="auto" autocomplete="off" value="${esc(it[f.k]||'')}">`).join('')+
     (it.fichier?`<div class="note" dir="auto">📄 Fichier : ${esc(it.fichier)}${NATIVE?(it.uri?' · 🔗 relié':' · non relié (importez le dossier des PDF)'):''}</div>`:'')+
+    (NATIVE&&it.uri?'<button class="btn" id="fExt" style="width:100%;margin-top:14px">📖 Ouvrir avec une autre application</button>':'')+
     `<div class="row">${id?'<button class="btn del" id="fDel">Supprimer</button>':''}<button class="btn" id="fCancel">Annuler</button><button class="btn pri" id="fSave">Enregistrer</button></div>`;
   $('#formVeil').classList.add('on');
   $('#fCancel').onclick=closeForm;
   $('#fSave').onclick=submitForm;
+  if($('#fExt'))$('#fExt').onclick=()=>Android.openPdfExternal(it.uri);
   if($('#fDel'))$('#fDel').onclick=()=>{
-    if(confirm('Supprimer définitivement cet élément ?')){
+    // confirmation intégrée : la fenêtre confirm() du navigateur n'existe pas dans l'application Android
+    const row=$('#formSheet .row');
+    row.innerHTML='<div class="ask">Supprimer définitivement cet élément ?</div>'+
+      '<button class="btn" id="fNo">Non, garder</button><button class="btn del" id="fYes">Oui, supprimer</button>';
+    $('#fNo').onclick=()=>openForm(editId);
+    $('#fYes').onclick=()=>{
       data[cur]=data[cur].filter(x=>x.id!==editId);
       if(save()){closeForm();render();toast('Supprimé.');}
-    }
+    };
   };
 }
 function closeForm(){$('#formVeil').classList.remove('on');editId=null;}
