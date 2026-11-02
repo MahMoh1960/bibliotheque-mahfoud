@@ -13,25 +13,25 @@
   --text:#e8e4dc; --muted:#a39e93; --accent:#f4a259; --accent-ink:#1a1206; --danger:#e57373;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Naskh Arabic",sans-serif;font-size:18px}
+html,body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Naskh Arabic",sans-serif;font-size:16px}
 body{min-height:100vh;padding-bottom:110px}
 header{position:sticky;top:0;z-index:5;background:var(--bg);padding:12px 14px 8px;border-bottom:1px solid var(--line)}
 .top{display:flex;align-items:center;justify-content:space-between;gap:8px}
-h1{font-size:21px;margin:0;color:var(--accent);font-weight:700}
+h1{font-size:19px;margin:0;color:var(--accent);font-weight:700}
 .iconbtn{background:var(--surface2);color:var(--text);border:1px solid var(--line);border-radius:12px;min-width:48px;height:48px;font-size:22px}
 .tabs{display:flex;gap:8px;margin:10px 0}
-.tab{flex:1;height:46px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:17px}
+.tab{flex:1;height:42px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:15px}
 .tab.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:700}
-.search{width:100%;height:50px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--text);padding:0 14px;font-size:18px}
-.count{color:var(--muted);font-size:15px;margin:8px 2px 0}
+.search{width:100%;height:46px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--text);padding:0 14px;font-size:16px}
+.count{color:var(--muted);font-size:14px;margin:6px 2px 0}
 main{padding:10px 14px}
-.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px;display:flex;gap:10px;align-items:flex-start}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:8px;display:flex;gap:10px;align-items:flex-start}
 .cmain{flex:1;min-width:0}
-.edit{flex:none;width:46px;height:46px;border-radius:12px;border:1px solid var(--line);background:var(--surface2);color:var(--text);font-size:20px}
+.edit{flex:none;width:42px;height:42px;border-radius:12px;border:1px solid var(--line);background:var(--surface2);color:var(--text);font-size:18px}
 .badge.ok{background:#16301f;color:#8fd19e;border-color:#3d7a4d;margin-inline-end:6px}
 .card:active{background:var(--surface2)}
-.t{font-size:19px;font-weight:600;line-height:1.35}
-.s{color:var(--muted);font-size:16px;margin-top:4px;line-height:1.4}
+.t{font-size:17px;font-weight:600;line-height:1.3}
+.s{color:var(--muted);font-size:14px;margin-top:2px;line-height:1.35}
 .empty{color:var(--muted);text-align:center;padding:40px 10px;line-height:1.6}
 .fab{position:fixed;right:18px;bottom:calc(18px + env(safe-area-inset-bottom));width:64px;height:64px;border-radius:50%;border:none;background:var(--accent);color:var(--accent-ink);font-size:34px;box-shadow:0 4px 14px rgba(0,0,0,.5)}
 .veil{position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;align-items:flex-end;z-index:20}
@@ -160,7 +160,7 @@ function render(){
   $('#list').innerHTML=items.map(it=>{
     const sub=sec.fields.slice(1).map(f=>it[f.k]?`${f.l} : ${esc(it[f.k])}`:'').filter(Boolean).join(' · ');
     const linked=NATIVE&&it.uri;
-    return `<div class="card" data-id="${it.id}"><div class="cmain"><div class="t" dir="auto">${esc(it.titre)}</div>${sub?`<div class="s" dir="auto">${sub}</div>`:''}${it.fichier?`<div class="file" dir="auto">📄 ${esc(it.fichier)}</div>`:''}${linked?'<span class="badge ok">📖 Toucher pour ouvrir</span>':''}${it.verif?'<span class="badge">⚠ À vérifier</span>':''}</div><button class="edit" data-edit="${it.id}" aria-label="Modifier">✏️</button></div>`;
+    return `<div class="card" data-id="${it.id}"><div class="cmain"><div class="t" dir="auto">${esc(it.titre)}</div>${sub?`<div class="s" dir="auto">${sub}</div>`:''}${linked?'<span class="badge ok">📖 Toucher pour ouvrir</span>':''}${it.verif?'<span class="badge">⚠ À vérifier</span>':''}</div><button class="edit" data-edit="${it.id}" aria-label="Modifier">✏️</button></div>`;
   }).join('');
   document.querySelectorAll('.card').forEach(c=>c.onclick=()=>{
     const it=data[cur].find(x=>x.id===c.dataset.id);
